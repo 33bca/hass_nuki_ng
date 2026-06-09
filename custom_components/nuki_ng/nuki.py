@@ -37,7 +37,7 @@ class NukiInterface:
         self.bridge = bridge
         self.token = token
         self.web_token = web_token
-        self.use_hashed = False
+        self.use_hashed = use_hashed
 
     async def async_json(self, cb):
         response = await self.hass.async_add_executor_job(lambda: cb(requests))
@@ -334,6 +334,14 @@ class NukiInterface:
             )
         )
 
+    async def web_sync(self, dev_id: str):
+        await self.web_async_json(
+            lambda r, h: r.post(
+                self.web_url(f"/smartlock/{dev_id}/sync"),
+                headers=h,
+            )
+        )
+
     async def web_update_config(self, dev_id: str, name: str, changes: dict):
         mapping = {"config": "/config", "advancedConfig": "/advanced/config", "openerAdvancedConfig": "/advanced/openerconfig"}
         await self.web_async_json(
@@ -396,7 +404,7 @@ class NukiCoordinator(DataUpdateCoordinator):
             async def _schedule_callback(_now):
                 last_state["ringactionState"] = False
                 self.async_set_updated_data(data)
-            async_call_later(self.hass, 5, _schedule_callback)    
+            async_call_later(self.hass, 5, _schedule_callback)
 
     async def _update(self):
         try:
@@ -521,6 +529,22 @@ class NukiCoordinator(DataUpdateCoordinator):
         else:
             raise HomeAssistantError("Not supported")
 
+    async def do_sync(self, dev_id: str):
+        if not self.api.can_web():
+            raise HomeAssistantError("Web API not configured")
+        await self.api.web_sync(self.web_id(dev_id))
+        await self.async_request_refresh()
+
+    async def sync_on_start(self):
+        if not self.api.can_web():
+            return
+        for dev_id in self.data.get("devices", {}):
+            try:
+                await self.api.web_sync(self.web_id(dev_id))
+            except Exception:
+                _LOGGER.warning(f"Failed to sync device {dev_id} on startup")
+        await self.async_request_refresh()
+
     async def do_delete_callback(self, callback):
         if self.api.can_bridge():
             await self.api.bridge_remove_callback(callback)
@@ -559,11 +583,11 @@ class NukiCoordinator(DataUpdateCoordinator):
         await self.api.web_update_auth(self.web_id(dev_id), auth["id"], changes)
         data = self.data
         for key in changes:
-            data.get(dev_id, {}).get("web_auth", {}).get(auth["id"], {})[key] = changes[
+            data.get("devices", {}).get(dev_id, {}).get("web_auth", {}).get(auth["id"], {})[key] = changes[
                 key
             ]
         self.async_set_updated_data(data)
-    
+
     async def update_config(self, dev_id: str, name: str, changes: dict):
         data = self.data
         obj = data["devices"].get(dev_id, {}).get(name)

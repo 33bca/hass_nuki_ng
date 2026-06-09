@@ -3,7 +3,7 @@ from homeassistant.helpers.entity import EntityCategory
 
 import logging
 
-from . import NukiBridge
+from . import NukiBridge, NukiEntity
 from .constants import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -15,6 +15,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
     if coordinator.api.can_bridge():
         entities.append(NukiBridgeRestartButton(coordinator))
         entities.append(NukiBridgeFWUpdateButton(coordinator))
+    if coordinator.api.can_web():
+        for dev_id in coordinator.data.get("devices", {}):
+            entities.append(NukiSyncButton(coordinator, dev_id))
     async_add_entities(entities)
     return True
 
@@ -43,3 +46,17 @@ class NukiBridgeFWUpdateButton(NukiBridge, ButtonEntity):
 
     async def async_press(self) -> None:
         await self.coordinator.do_fwupdate()
+
+
+class NukiSyncButton(NukiEntity, ButtonEntity):
+    """Forces a state sync from the physical lock via the Web API."""
+
+    def __init__(self, coordinator, device_id):
+        super().__init__(coordinator, device_id)
+        self.set_id("button", "sync")
+        self.set_name("Sync")
+        self._attr_icon = "mdi:sync"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    async def async_press(self) -> None:
+        await self.coordinator.do_sync(self.device_id)
