@@ -1,4 +1,3 @@
-from email.policy import default
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.entity import EntityCategory
 
@@ -25,7 +24,7 @@ async def async_setup_entry(
         if coordinator.info_field(dev_id, None, "advancedConfig", "autoLock") != None:
             entities.append(LockAutoLock(coordinator, dev_id))
         if coordinator.info_field(dev_id, None, "config", "buttonEnabled") != None:
-            entities.append(LockButtonEnabled(coordinator, dev_id))            
+            entities.append(LockButtonEnabled(coordinator, dev_id))
         if coordinator.info_field(dev_id, -1, "openerAdvancedConfig", "doorbellSuppression")  >= 0:
             entities.append(OpenerRingSuppression(coordinator, dev_id))
             entities.append(OpenerRingSuppressionRTO(coordinator, dev_id))
@@ -94,7 +93,7 @@ class AuthEntry(NukiEntity, SwitchEntity):
         # this change are converted by registry_migration.
         info = {
             "identifiers": {(DOMAIN, f"web_{self.device_id}")},
-            "name": "Nuki Web API",
+            "name": f"Nuki Web {self.data.get('name', self.device_id)}",
             "manufacturer": "Nuki",
         }
         # `via_device` was deprecated in HA 2026.10 (removed in 2027.8): link to the
@@ -155,13 +154,13 @@ class LockButtonEnabled(NukiEntity, SwitchEntity):
         await self.coordinator.update_config(
             self.device_id, "config", dict(buttonEnabled=False)
         )
-        
+
 class OpenerRingSuppressionSwitch(NukiOpenerRingSuppressionEntity, SwitchEntity):
-    
+
     def __init__(self, coordinator, device_id, suppression):
         super().__init__(coordinator, device_id)
         self._suppression = suppression
-    
+
     @property
     def entity_registry_enabled_default(self):
         return False

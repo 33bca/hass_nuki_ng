@@ -1,4 +1,3 @@
-from email.policy import default
 from homeassistant.components.select import SelectEntity
 from homeassistant.helpers.entity import EntityCategory
 
