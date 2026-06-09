@@ -1,5 +1,6 @@
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.core import callback
 
 import logging
 
@@ -11,24 +12,36 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    entities = []
     coordinator = entry.runtime_data
+    known = set()
 
-    for dev_id in coordinator.data.get("devices", {}):
-        entities.append(BatteryLow(coordinator, dev_id))
-        if coordinator.device_supports(dev_id, "batteryCharging"):
-            entities.append(BatteryCharging(coordinator, dev_id))
-        entities.append(LockState(coordinator, dev_id))
-        if coordinator.device_supports(dev_id, "keypadBatteryCritical"):
-            entities.append(KeypadBatteryLow(coordinator, dev_id))
-        if coordinator.is_opener(dev_id):
-            entities.append(RingAction(coordinator, dev_id))
-        if coordinator.device_supports(dev_id, "doorsensorStateName"):
-            entities.append(DoorState(coordinator, dev_id))
     if coordinator.api.can_bridge():
-        entities.append(BridgeServerConnection(coordinator))
-        entities.append(BridgeCallbackSet(coordinator))
-    async_add_entities(entities)
+        async_add_entities([
+            BridgeServerConnection(coordinator),
+            BridgeCallbackSet(coordinator),
+        ])
+
+    @callback
+    def _add_new():
+        new = []
+        for dev_id in coordinator.data.get("devices", {}):
+            if dev_id not in known:
+                known.add(dev_id)
+                new.append(BatteryLow(coordinator, dev_id))
+                if coordinator.device_supports(dev_id, "batteryCharging"):
+                    new.append(BatteryCharging(coordinator, dev_id))
+                new.append(LockState(coordinator, dev_id))
+                if coordinator.device_supports(dev_id, "keypadBatteryCritical"):
+                    new.append(KeypadBatteryLow(coordinator, dev_id))
+                if coordinator.is_opener(dev_id):
+                    new.append(RingAction(coordinator, dev_id))
+                if coordinator.device_supports(dev_id, "doorsensorStateName"):
+                    new.append(DoorState(coordinator, dev_id))
+        if new:
+            async_add_entities(new)
+
+    _add_new()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new))
     return True
 
 

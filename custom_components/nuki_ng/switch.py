@@ -1,5 +1,6 @@
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.core import callback
 
 import logging
 
@@ -15,23 +16,38 @@ async def async_setup_entry(
     entry,
     async_add_entities
 ):
-    entities = []
     coordinator = entry.runtime_data
+    known_devices = set()
+    known_auths = set()
 
-    for dev_id in coordinator.data.get("devices", {}):
-        for auth_id in coordinator.device_data(dev_id).get("web_auth", {}):
-            entities.append(AuthEntry(coordinator, dev_id, auth_id))
-        if coordinator.info_field(dev_id, None, "advancedConfig", "autoLock") != None:
-            entities.append(LockAutoLock(coordinator, dev_id))
-        if coordinator.info_field(dev_id, None, "config", "buttonEnabled") != None:
-            entities.append(LockButtonEnabled(coordinator, dev_id))
-        if coordinator.info_field(dev_id, -1, "openerAdvancedConfig", "doorbellSuppression")  >= 0:
-            entities.append(OpenerRingSuppression(coordinator, dev_id))
-            entities.append(OpenerRingSuppressionRTO(coordinator, dev_id))
-            entities.append(OpenerRingSuppressionCM(coordinator, dev_id))
-        if coordinator.is_opener(dev_id):
-            entities.append(OpenerContinuousMode(coordinator, dev_id))
-    async_add_entities(entities)
+    @callback
+    def _add_new():
+        new = []
+        for dev_id in coordinator.data.get("devices", {}):
+            # New auth entries (tracked per (dev_id, auth_id) pair)
+            for auth_id in coordinator.device_data(dev_id).get("web_auth", {}):
+                if (dev_id, auth_id) not in known_auths:
+                    known_auths.add((dev_id, auth_id))
+                    new.append(AuthEntry(coordinator, dev_id, auth_id))
+
+            # Device-level switches — added once per new device
+            if dev_id not in known_devices:
+                known_devices.add(dev_id)
+                if coordinator.info_field(dev_id, None, "advancedConfig", "autoLock") is not None:
+                    new.append(LockAutoLock(coordinator, dev_id))
+                if coordinator.info_field(dev_id, None, "config", "buttonEnabled") is not None:
+                    new.append(LockButtonEnabled(coordinator, dev_id))
+                if coordinator.info_field(dev_id, -1, "openerAdvancedConfig", "doorbellSuppression") >= 0:
+                    new.append(OpenerRingSuppression(coordinator, dev_id))
+                    new.append(OpenerRingSuppressionRTO(coordinator, dev_id))
+                    new.append(OpenerRingSuppressionCM(coordinator, dev_id))
+                if coordinator.is_opener(dev_id):
+                    new.append(OpenerContinuousMode(coordinator, dev_id))
+        if new:
+            async_add_entities(new)
+
+    _add_new()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new))
     return True
 
 

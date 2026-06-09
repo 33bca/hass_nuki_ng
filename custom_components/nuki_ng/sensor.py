@@ -1,5 +1,6 @@
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.core import callback
 
 import logging
 from datetime import datetime
@@ -12,28 +13,39 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    entities = []
     coordinator = entry.runtime_data
+    known = set()
 
     if coordinator.api.can_bridge():
-        entities.append(BridgeWifiVersion(coordinator))
-        entities.append(BridgeVersion(coordinator))
-    for dev_id in coordinator.data.get("devices", {}):
-        entities.append(LockState(coordinator, dev_id))
-        if coordinator.api.can_bridge():
-            entities.append(RSSI(coordinator, dev_id))
-        entities.append(LockVersion(coordinator, dev_id))
-        if coordinator.device_supports(dev_id, "batteryChargeState"):
-            entities.append(Battery(coordinator, dev_id))
-        if coordinator.device_supports(dev_id, "doorsensorStateName"):
-            entities.append(DoorSensorState(coordinator, dev_id))
-            entities.append(DoorSecurityState(coordinator, dev_id))
-        if coordinator.info_field(dev_id, None, "last_log"):
-            entities.append(LastLog(coordinator, dev_id))
-        if coordinator.info_field(dev_id, None, "last_unlock_log"):
-            entities.append(LastUnlockUser(coordinator, dev_id))
-        
-    async_add_entities(entities)
+        async_add_entities([
+            BridgeWifiVersion(coordinator),
+            BridgeVersion(coordinator),
+        ])
+
+    @callback
+    def _add_new():
+        new = []
+        for dev_id in coordinator.data.get("devices", {}):
+            if dev_id not in known:
+                known.add(dev_id)
+                new.append(LockState(coordinator, dev_id))
+                if coordinator.api.can_bridge():
+                    new.append(RSSI(coordinator, dev_id))
+                new.append(LockVersion(coordinator, dev_id))
+                if coordinator.device_supports(dev_id, "batteryChargeState"):
+                    new.append(Battery(coordinator, dev_id))
+                if coordinator.device_supports(dev_id, "doorsensorStateName"):
+                    new.append(DoorSensorState(coordinator, dev_id))
+                    new.append(DoorSecurityState(coordinator, dev_id))
+                if coordinator.info_field(dev_id, None, "last_log"):
+                    new.append(LastLog(coordinator, dev_id))
+                if coordinator.info_field(dev_id, None, "last_unlock_log"):
+                    new.append(LastUnlockUser(coordinator, dev_id))
+        if new:
+            async_add_entities(new)
+
+    _add_new()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new))
     return True
 
 

@@ -1,4 +1,5 @@
 from homeassistant.components.lock import LockEntity, LockEntityFeature
+from homeassistant.core import callback
 
 import logging
 
@@ -10,12 +11,21 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    entities = []
     coordinator = entry.runtime_data
+    known = set()
 
-    for dev_id in coordinator.data.get("devices", {}):
-        entities.append(Lock(coordinator, dev_id))
-    async_add_entities(entities)
+    @callback
+    def _add_new():
+        new = []
+        for dev_id in coordinator.data.get("devices", {}):
+            if dev_id not in known:
+                known.add(dev_id)
+                new.append(Lock(coordinator, dev_id))
+        if new:
+            async_add_entities(new)
+
+    _add_new()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new))
     return True
 
 

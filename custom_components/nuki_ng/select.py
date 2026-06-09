@@ -1,5 +1,6 @@
 from homeassistant.components.select import SelectEntity
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.core import callback
 
 import logging
 
@@ -14,13 +15,22 @@ async def async_setup_entry(
     entry,
     async_add_entities
 ):
-    entities = []
     coordinator = entry.runtime_data
+    known = set()
 
-    for dev_id in coordinator.data.get("devices", {}):
-        if coordinator.info_field(dev_id, -1, "openerAdvancedConfig", "doorbellSuppression")  >= 0:
-            entities.append(NukiOpenerRingSuppressionSelect(coordinator, dev_id))
-    async_add_entities(entities)
+    @callback
+    def _add_new():
+        new = []
+        for dev_id in coordinator.data.get("devices", {}):
+            if dev_id not in known:
+                known.add(dev_id)
+                if coordinator.info_field(dev_id, -1, "openerAdvancedConfig", "doorbellSuppression") >= 0:
+                    new.append(NukiOpenerRingSuppressionSelect(coordinator, dev_id))
+        if new:
+            async_add_entities(new)
+
+    _add_new()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new))
     return True
 
 
