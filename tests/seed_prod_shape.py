@@ -55,7 +55,7 @@ def main() -> int:
     bridge = find((DOMAIN, 485731010))
     web = find((DOMAIN, "web_824523165"))
     if not (lock and bridge and web):
-        print("Erwartete nuki_ng-Geräte nicht gefunden — schon geseedet?")
+        print("Expected nuki_ng devices not found — already seeded?")
         return 1
 
     def legacy_clone(src: dict, new_id: str, identifier) -> dict:
@@ -83,18 +83,18 @@ def main() -> int:
             moved = ent["entity_id"]
             break
 
-    print(f"Geräte: {len(rows) - 2} → {len(rows)}")
-    print(f"  + {seed_lock['id']}  ('id', 824523165)   leer")
-    print(f"  + {seed_bridge['id']}  ('id', 485731010)   Entity: {moved or 'keine'}")
-    print(f"  ~ {web['id']}  → ('web_id', 824523165), via_device {seed_lock['id']}")
+    print(f"devices: {len(rows) - 2} -> {len(rows)}")
+    print(f"  + {seed_lock['id']}  ('id', 824523165)   no entities")
+    print(f"  + {seed_bridge['id']}  ('id', 485731010)   entity: {moved or 'none'}")
+    print(f"  ~ {web['id']}  -> ('web_id', 824523165), via_device {seed_lock['id']}")
 
     if args.dry_run:
-        print("\n--dry-run: nichts geschrieben")
+        print("\n--dry-run: nothing written")
         return 0
 
     save(dev_path, devices)
     save(ent_path, entities)
-    print("\ngeschrieben, Backups als *.bak-seed")
+    print("\nwritten, backups kept as *.bak-seed")
     return 0
 
 
