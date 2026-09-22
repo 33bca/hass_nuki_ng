@@ -41,8 +41,13 @@ _LOGGER = logging.getLogger(__name__)
 # ------------------------------------------------------
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    data = entry.as_dict()["data"]
-    _LOGGER.debug(f"async_setup_entry: {data}")
+    # Options (set via "Configure") override the values from the initial setup
+    data = {**entry.data, **entry.options}
+    # Hashed bridge auth is opt-in via the options only. Entries created by
+    # older releases may carry use_hashed=True in their data, which upstream
+    # ignored since 2022; honouring it now would silently change their auth.
+    data["use_hashed"] = entry.options.get("use_hashed", False)
+    _LOGGER.debug(f"async_setup_entry: {entry.entry_id}, bridge: {data.get('address')}, hashed token: {data.get('use_hashed', False)}")
 
     # Convert devices still registered under the pre-0.5.x identifier domains
     # before any platform re-creates them. No-op once converted.
@@ -52,8 +57,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     entry.runtime_data = coordinator
 
     await coordinator.async_config_entry_first_refresh()
-    await coordinator.sync_on_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_async_options_updated))
 
     return True
 
@@ -80,6 +85,10 @@ async def async_remove_config_entry_device(
         )
         return False
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry):
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry):

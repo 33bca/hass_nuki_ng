@@ -21,6 +21,11 @@ from .constants import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _mask_token(url: str) -> str:
+    """Keep the plain bridge token out of logs and error messages."""
+    return re.sub(r"([?&]token=)[^&]*", r"\1***", url)
+
 BRIDGE_DISCOVERY_API = "https://api.nuki.io/discover/bridges"
 BRIDGE_HOOK = "nuki_ng_bridge_hook"
 BRIDGE_TIMEOUT = 10
@@ -42,7 +47,13 @@ class NukiInterface:
     async def async_json(self, cb):
         response = await self.hass.async_add_executor_job(lambda: cb(requests))
         if not response.ok:
-            raise HomeAssistantError(f"Http response for {response.request.url}: {response.status_code} {response.reason}")
+            if response.status_code == 401 and self.use_hashed and self.bridge and self.bridge in response.request.url:
+                raise HomeAssistantError(
+                    "Nuki bridge rejected the hashed token (401). Hashed tokens need a correct bridge clock "
+                    "(the bridge syncs its time via the internet). Check the bridge's internet access or "
+                    "disable 'Use hashed bridge token' in the integration options."
+                )
+            raise HomeAssistantError(f"Http response for {_mask_token(response.request.url)}: {response.status_code} {response.reason}")
         if response.status_code > 200:
             _LOGGER.debug(f"async_json: http status: {response.status_code} - {response.text}")
             return dict()

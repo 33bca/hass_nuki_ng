@@ -1,5 +1,6 @@
 from homeassistant import config_entries
 import homeassistant.helpers.config_validation as cv
+from homeassistant.core import callback
 from homeassistant.helpers.network import get_url
 from .constants import DOMAIN
 from .nuki import NukiInterface
@@ -104,23 +105,48 @@ class NukiNGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=schema, errors=errors
         )
 
-    # def async_get_options_flow(config_entry):
-    #     return OptionsFlowHandler(config_entry)
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry):
+        return OptionsFlowHandler(config_entry)
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry):
-        self.config_entry = config_entry
+        # Not self.config_entry: newer Home Assistant versions provide that property themselves
+        self._entry = config_entry
 
     async def async_step_init(self, user_input=None):
-        data = self.config_entry.as_dict()["data"]
-        _LOGGER.debug(f"OptionsFlowHandler: {data} {self.config_entry}")
-        schema = vol.Schema({
-            vol.Required("hass_url", default=data.get("hass_url")): cv.string,
-            vol.Required("token", default=data.get("token")): cv.string,
-            vol.Optional("web_token", default=data.get("web_token")): cv.string,
-        })
+        current = {**self._entry.data, **self._entry.options}
+        errors = None
+        if user_input is not None:
+            # An emptied field keeps the value from the initial setup
+            user_input = {k: v for k, v in user_input.items() if v != ""}
+            token = user_input.get("token", current.get("token"))
+            if current.get("address") and token:
+                nuki = NukiInterface(
+                    self.hass,
+                    bridge=current.get("address"),
+                    token=token,
+                    use_hashed=user_input.get("use_hashed", False),
+                )
+                try:
+                    await nuki.bridge_info()
+                except Exception as err:
+                    _LOGGER.warning(f"Bridge check with the new options failed: {err}")
+                    errors = dict(base="hashed_token_rejected" if user_input.get("use_hashed") else "invalid_bridge_token")
+            if not errors:
+                return self.async_create_entry(title="", data=user_input)
+            current = {**current, **user_input}
+        fields = {}
+        if current.get("address"):
+            fields[vol.Optional("token", default=current.get("token", ""))] = cv.string
+            fields[vol.Required("use_hashed", default=self._entry.options.get("use_hashed", False))] = cv.boolean
+        fields[vol.Required("update_seconds", default=current.get("update_seconds", 30))] = vol.All(
+            cv.positive_int,
+            vol.Range(min=10, max=600)
+        )
         return self.async_show_form(
-            step_id="options", data_schema=schema
+            step_id="init", data_schema=vol.Schema(fields), errors=errors
         )

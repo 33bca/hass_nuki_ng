@@ -49,6 +49,20 @@ The API token for the Nuki Bridge needs to be configured on the bridge, e.g. usi
 [Home Assistant Nuki documentation](https://www.home-assistant.io/integrations/nuki/) explains it like this:
 
 > To add a Nuki bridge to your installation, you need to enable developer mode on your bridge and define a port and an access token. This can be achieved using the [Android app](https://play.google.com/store/apps/details?id=io.nuki) or [iPhone app](https://apps.apple.com/app/nuki-smart-lock/id1044998081). Go to manage my devices, and select the bridge. Within the bridge configuration turn on the HTTP API and check the details in the screen. Please note that the API token should be 6-20 characters long, even though the app allows you to set a longer one.
+
+#### Hashed bridge token:
+By default the bridge API token is sent in plain text as part of every request URL, so anyone who can sniff your
+local network traffic can read it and control your lock. Hardware bridges also accept a
+[hashed token](https://developer.nuki.io/page/nuki-bridge-http-api-1-13/4#heading--token) instead: each request
+carries a timestamp, a random number and a SHA-256 hash, and the token itself never leaves Home Assistant.
+
+* New entries created with a hardware bridge use the hashed token automatically.
+* For existing entries: open the integration, click *Configure* and enable *Use hashed bridge token*. The setting is
+  checked against the bridge before it is saved.
+* The bridge needs a correct clock for this, which it gets via the internet. A bridge without internet access will
+  reject hashed tokens - leave the option off in that case.
+* Since the old token may have been visible on your network, consider generating a new one in the Nuki app and
+  entering it in the same *Configure* dialog.
   
   
 #### Web API Token:

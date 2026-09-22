@@ -24,7 +24,7 @@
   },
   "options": {
     "step": {
-      "options": {
+      "init": {
         "title": "Configurer l'appareil Nuki",
         "data": {
           "update_seconds": "Intervalle d'interrogation d'état (secondes)"

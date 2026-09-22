@@ -24,12 +24,18 @@
     },
     "options": {
       "step": {
-        "options": {
+        "init": {
           "title": "Nuki Gerät konfigurieren",
           "data": {
+            "token": "Bridge API Token (nach einer Erneuerung in der Nuki App hier eintragen)",
+            "use_hashed": "Gehashten Bridge-Token verwenden (empfohlen: der Token wird nie im Klartext gesendet; die Bridge braucht Internet für ihre Uhrzeit)",
             "update_seconds": "Intervall der Statusabfrage (Sekunden)"
           }
         }
+      },
+      "error": {
+        "hashed_token_rejected": "Die Bridge hat den gehashten Token abgelehnt. Dafür braucht sie eine korrekte Uhrzeit, die sie über das Internet bezieht.",
+        "invalid_bridge_token": "Fehler in der Kommunikation mit der Nuki Bridge"
       }
     }
   }

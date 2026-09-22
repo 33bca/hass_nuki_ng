@@ -24,7 +24,7 @@
   },
   "options": {
     "step": {
-      "options": {
+      "init": {
         "title": "Configurar dispositivo Nuki",
         "data": {
           "update_seconds": "Intervalo de escaneamento de estado (segundos)"

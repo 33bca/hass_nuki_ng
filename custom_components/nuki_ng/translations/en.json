@@ -24,12 +24,18 @@
   },
   "options": {
     "step": {
-      "options": {
+      "init": {
         "title": "Configure Nuki device",
         "data": {
+          "token": "Bridge API token (change it here after renewing it in the Nuki app)",
+          "use_hashed": "Use hashed bridge token (recommended: the token is never sent in plain text; the bridge needs internet access for its clock)",
           "update_seconds": "State polling interval (seconds)"
         }
       }
+    },
+    "error": {
+      "hashed_token_rejected": "The bridge rejected the hashed token. Hashed tokens need a correct bridge clock, which the bridge gets via the internet.",
+      "invalid_bridge_token": "Error communicating with Nuki bridge"
     }
   }
 }
