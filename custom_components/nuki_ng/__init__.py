@@ -7,9 +7,24 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from homeassistant.helpers import device_registry as dr
+
 from .nuki import NukiCoordinator
 from .constants import DOMAIN, PLATFORMS
 from .registry_migration import async_migrate_device_registry
+
+
+def via_device_id(hass: HomeAssistant | None, identifier: tuple[str, str]) -> str | None:
+    """Return the device registry id of the parent device with this identifier.
+
+    Replaces the `via_device` identifier tuple, deprecated in HA 2026.10 and removed in
+    2027.8. None when the parent is not registered yet (HA ignored an unknown
+    `via_device` the same way); the link is then made on the next start.
+    """
+    if hass is None:
+        return None
+    device = dr.async_get(hass).async_get_device(identifiers={identifier})
+    return device.id if device else None
 
 OPENER_TYPE = 1
 LOCK_TYPE = 0
@@ -191,9 +206,10 @@ class NukiEntity(CoordinatorEntity):
             "sw_version": self.data.get("firmwareVersion"),
         }
 
-        # Add bridging only when valid
-        if bridge_id:
-            info["via_device"] = (DOMAIN, bridge_id)
+        # Add bridging only when valid. HA 2026.10 deprecated `via_device` (an identifier
+        # tuple; removed in 2027.8) for `via_device_id` (the parent's device registry id).
+        if bridge_id and (via := via_device_id(self.hass, (DOMAIN, bridge_id))):
+            info["via_device_id"] = via
 
         return info
 

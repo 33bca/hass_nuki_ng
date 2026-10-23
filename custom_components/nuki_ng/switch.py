@@ -4,7 +4,7 @@ from homeassistant.helpers.entity import EntityCategory
 
 import logging
 
-from . import NukiEntity, NukiOpenerRingSuppressionEntity
+from . import NukiEntity, NukiOpenerRingSuppressionEntity, via_device_id
 from .constants import DOMAIN
 from .states import LockModes
 
@@ -92,12 +92,16 @@ class AuthEntry(NukiEntity, SwitchEntity):
         # Same identifier domain as the lock and the bridge. The numeric id is
         # shared with the lock, hence the prefix. Registrations from before
         # this change are converted by registry_migration.
-        return {
+        info = {
             "identifiers": {(DOMAIN, f"web_{self.device_id}")},
             "name": "Nuki Web API",
             "manufacturer": "Nuki",
-            "via_device": (DOMAIN, self.device_id)
         }
+        # `via_device` was deprecated in HA 2026.10 (removed in 2027.8): link to the
+        # lock/opener by its device registry id instead.
+        if via := via_device_id(self.hass, (DOMAIN, self.device_id)):
+            info["via_device_id"] = via
+        return info
 
     @property
     def entity_category(self):
