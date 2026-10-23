@@ -99,7 +99,7 @@ class AuthEntry(NukiEntity, SwitchEntity):
         }
         # `via_device` was deprecated in HA 2026.10 (removed in 2027.8): link to the
         # lock/opener by its device registry id instead.
-        if via := via_device_id(self.hass, (DOMAIN, self.device_id)):
+        if via := via_device_id(self, (DOMAIN, self.device_id)):
             info["via_device_id"] = via
         return info
 

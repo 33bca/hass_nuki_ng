@@ -14,16 +14,20 @@ from .constants import DOMAIN, PLATFORMS
 from .registry_migration import async_migrate_device_registry
 
 
-def via_device_id(hass: HomeAssistant | None, identifier: tuple[str, str]) -> str | None:
-    """Return the device registry id of the parent device with this identifier.
+def via_device_id(entity, identifier: tuple[str, str]) -> str | None:
+    """Return the device registry id of this config entry's device with this identifier.
 
     Replaces the `via_device` identifier tuple, deprecated in HA 2026.10 and removed in
-    2027.8. None when the parent is not registered yet (HA ignored an unknown
-    `via_device` the same way); the link is then made on the next start.
+    2027.8. Uses async_get_device_by_identifier (scoped to the entity's config entry):
+    async_get_device is deprecated in the same release. None when the parent is not
+    registered yet (HA ignored an unknown `via_device` the same way); the link is then
+    made on the next start.
     """
-    if hass is None:
+    if entity.hass is None or entity.platform is None or entity.platform.config_entry is None:
         return None
-    device = dr.async_get(hass).async_get_device(identifiers={identifier})
+    device = dr.async_get(entity.hass).async_get_device_by_identifier(
+        identifier, entity.platform.config_entry.entry_id
+    )
     return device.id if device else None
 
 OPENER_TYPE = 1
@@ -208,7 +212,7 @@ class NukiEntity(CoordinatorEntity):
 
         # Add bridging only when valid. HA 2026.10 deprecated `via_device` (an identifier
         # tuple; removed in 2027.8) for `via_device_id` (the parent's device registry id).
-        if bridge_id and (via := via_device_id(self.hass, (DOMAIN, bridge_id))):
+        if bridge_id and (via := via_device_id(self, (DOMAIN, bridge_id))):
             info["via_device_id"] = via
 
         return info
