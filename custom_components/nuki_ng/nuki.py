@@ -18,6 +18,7 @@ from datetime import timedelta, datetime, timezone
 from urllib.parse import urlencode
 
 from .constants import DOMAIN
+from .planning import BRIDGE_CALLBACK_CHECK, plan_callback_changes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ def _mask_token(url: str) -> str:
 BRIDGE_DISCOVERY_API = "https://api.nuki.io/discover/bridges"
 BRIDGE_HOOK = "nuki_ng_bridge_hook"
 BRIDGE_TIMEOUT = 10
+AUTH_READBACK_DELAY = 5
 
 LOCK_DEVICE_TYPES = (0, 3, 4, 5)
 OPENER_DEVICE_TYPES = (2,)
@@ -174,27 +176,44 @@ class NukiInterface:
         return False
 
     async def bridge_check_callback(self, callback: str):
+        """Make sure our webhook holds exactly one of the bridge's 3 callback slots.
+
+        Upstream only looked at slot 0 and otherwise removed and re-added every
+        callback, so the slots filled with copies of our own URL (upstream #245).
+        """
         callbacks = await self.async_json(
             lambda r: r.get(self.bridge_url("/callback/list"), timeout=BRIDGE_TIMEOUT)
         )
-        _LOGGER.debug(f"bridge_check_callback: {callbacks}, {callback}")
-        result = dict()
         callbacks_list = callbacks.get("callbacks", [])
-        if len(callbacks_list) and callbacks_list[0]["url"] == callback:
-            _LOGGER.debug("Callback is set")
+        plan = plan_callback_changes(callbacks_list, callback)
+        if not plan["remove_ids"] and not plan["add"]:
             return callbacks_list
-        add_callbacks = [callback]
-        for item in callbacks_list:
-            if item["url"] != callback:
-                add_callbacks.append(item["url"])
-            await self.bridge_remove_callback(item["url"])
-        for callback_url in add_callbacks[:3]:
+        # The bridge renumbers ids after a removal: remove the highest id first.
+        for callback_id in plan["remove_ids"]:
             result = await self.async_json(
-                lambda r: r.get(self.bridge_url("/callback/add", {"url": callback_url}), timeout=BRIDGE_TIMEOUT)
+                lambda r: r.get(
+                    self.bridge_url("/callback/remove", {"id": callback_id}),
+                    timeout=BRIDGE_TIMEOUT,
+                )
             )
             if not result.get("success", True):
                 raise HomeAssistantError(result.get("message"))
-        _LOGGER.debug("Callback is set - re-added")
+        if plan["add"]:
+            if plan["full"]:
+                _LOGGER.warning(
+                    "All 3 bridge callback slots are used by other URLs; "
+                    "not replacing them, state updates will rely on polling"
+                )
+            else:
+                result = await self.async_json(
+                    lambda r: r.get(
+                        self.bridge_url("/callback/add", {"url": callback}),
+                        timeout=BRIDGE_TIMEOUT,
+                    )
+                )
+                if not result.get("success", True):
+                    raise HomeAssistantError(result.get("message"))
+        _LOGGER.debug("Bridge callback set")
         callbacks = await self.async_json(
             lambda r: r.get(self.bridge_url("/callback/list"), timeout=BRIDGE_TIMEOUT)
         )
@@ -439,12 +458,20 @@ class NukiCoordinator(DataUpdateCoordinator):
                     as_hex = f"{deviceType}{as_hex}"
                 return int(as_hex, 16)
             if self.api.can_bridge():
-                try:
-                    callbacks_list = await self.api.bridge_check_callback(
-                        self.bridge_hook
-                    )
-                except Exception:
-                    _LOGGER.exception(f"Failed to update callback {self.bridge_hook}")
+                # Checking on every poll overloads the bridge (one request at a
+                # time) and races with itself: check at start, then every 5 min.
+                now = datetime.now(timezone.utc)
+                checked_at = getattr(self, "_callbacks_checked_at", None)
+                callbacks_list = getattr(self, "_callbacks_list", None)
+                if checked_at is None or now - checked_at >= BRIDGE_CALLBACK_CHECK:
+                    try:
+                        callbacks_list = await self.api.bridge_check_callback(
+                            self.bridge_hook
+                        )
+                        self._callbacks_list = callbacks_list
+                        self._callbacks_checked_at = now
+                    except Exception as err:
+                        _LOGGER.warning(f"Failed to update bridge callback: {err}")
                 bridge_info = await self.api.bridge_info()
                 for item in bridge_info.get("scanResults", []):
                     info_mapping[item.get("nukiId")] = item
@@ -468,10 +495,12 @@ class NukiCoordinator(DataUpdateCoordinator):
                     item["webId"] = web_id
                     try:
                         item["web_auth"] = await self.api.web_list_all_auths(web_id)
+                        item["web_auth_ok"] = True
                     except HomeAssistantError as err:
                         _LOGGER.warning("Despite being configured, Web API request has failed")
                         _LOGGER.exception(f"Error while fetching auth: {err}")
                         item["web_auth"] = self.device_data(dev_id).get("web_auth", {})
+                        item["web_auth_ok"] = False
                     try:
                         item["last_unlock_log"] = await self.api.web_get_last_unlock_log(web_id)
                     except HomeAssistantError as err:
@@ -604,6 +633,12 @@ class NukiCoordinator(DataUpdateCoordinator):
                 key
             ]
         self.async_set_updated_data(data)
+        # Read the entry back from the Web API shortly after the write, so the
+        # switch reflects what the cloud really holds (not only our local copy).
+        async_call_later(self.hass, AUTH_READBACK_DELAY, self._readback)
+
+    async def _readback(self, _now=None):
+        await self.async_request_refresh()
 
     async def update_config(self, dev_id: str, name: str, changes: dict):
         data = self.data

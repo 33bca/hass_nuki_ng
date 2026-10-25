@@ -6,6 +6,7 @@ import logging
 
 from . import NukiEntity, NukiOpenerRingSuppressionEntity, via_device_id
 from .constants import DOMAIN
+from .planning import AUTH_ICONS, auth_attributes, auth_object_id, removed_auths
 from .states import LockModes
 
 _LOGGER = logging.getLogger(__name__)
@@ -18,17 +19,31 @@ async def async_setup_entry(
 ):
     coordinator = entry.runtime_data
     known_devices = set()
-    known_auths = set()
+    auth_entities = {}
 
     @callback
     def _add_new():
         new = []
-        for dev_id in coordinator.data.get("devices", {}):
+        devices = coordinator.data.get("devices", {})
+        # Entries deleted in Nuki: release their switches. They then show as
+        # "no longer provided" and can be deleted from the UI; the registry
+        # (and so the entity id) is left alone in case the entry comes back.
+        gone = removed_auths(
+            set(auth_entities),
+            {dev_id: coordinator.device_data(dev_id).get("web_auth", {}) for dev_id in devices},
+            {dev_id: coordinator.device_data(dev_id).get("web_auth_ok", False) for dev_id in devices},
+        )
+        for key in gone:
+            entity = auth_entities.pop(key)
+            _LOGGER.info(f"Authorization {key[1]} no longer exists in Nuki, removing {entity.entity_id}")
+            hass.async_create_task(entity.async_remove())
+        for dev_id in devices:
             # New auth entries (tracked per (dev_id, auth_id) pair)
             for auth_id in coordinator.device_data(dev_id).get("web_auth", {}):
-                if (dev_id, auth_id) not in known_auths:
-                    known_auths.add((dev_id, auth_id))
-                    new.append(AuthEntry(coordinator, dev_id, auth_id))
+                if (dev_id, auth_id) not in auth_entities:
+                    entity = AuthEntry(coordinator, dev_id, auth_id)
+                    auth_entities[(dev_id, auth_id)] = entity
+                    new.append(entity)
 
             # Device-level switches — added once per new device
             if dev_id not in known_devices:
@@ -64,6 +79,24 @@ class AuthEntry(NukiEntity, SwitchEntity):
         return f"authorization: {name}"
 
     @property
+    def name(self) -> str:
+        # Frozen at first registration: renaming the entry in the Nuki app no
+        # longer renames the switch (the current Nuki name is an attribute).
+        # Rename it in Home Assistant instead.
+        if getattr(self, "_frozen_name", None) is None and self.hass is not None:
+            from homeassistant.helpers import entity_registry as er
+
+            registry = er.async_get(self.hass)
+            entity_id = registry.async_get_entity_id("switch", DOMAIN, self.unique_id)
+            entry = registry.async_get(entity_id) if entity_id else None
+            self._frozen_name = (entry.original_name if entry else None) or super().name
+        return getattr(self, "_frozen_name", None) or super().name
+
+    @property
+    def suggested_object_id(self) -> str | None:
+        return auth_object_id(self.data.get("name", self.device_id), self.auth_data, self.auth_id)
+
+    @property
     def auth_data(self):
         return self.data.get("web_auth", {}).get(self.auth_id, {})
 
@@ -73,14 +106,7 @@ class AuthEntry(NukiEntity, SwitchEntity):
 
     @property
     def icon(self):
-        mapping = {
-            0: "mdi:devices",
-            1: "mdi:network",
-            2: "mdi:remote",
-            3: "mdi:focus-field",
-            13: "mdi:form-textbox-password"
-        }
-        return mapping.get(self.auth_data.get("type", -1), "mdi:account-question")
+        return AUTH_ICONS.get(self.auth_data.get("type", -1), "mdi:account-question")
 
     @property
     def available(self):
@@ -96,11 +122,7 @@ class AuthEntry(NukiEntity, SwitchEntity):
 
     @property
     def extra_state_attributes(self):
-        return {
-            "Remote allowed": self.auth_data.get("remoteAllowed"),
-            "Lock count": self.auth_data.get("lockCount"),
-            "Last active date": self.auth_data.get("lastActiveDate")
-        }
+        return auth_attributes(self.auth_data)
 
     @property
     def device_info(self):
