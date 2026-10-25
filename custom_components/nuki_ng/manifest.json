@@ -10,5 +10,5 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/cmatte/hass_nuki_ng/issues",
   "requirements": [],
-  "version": "0.6.2"
+  "version": "0.6.3"
 }

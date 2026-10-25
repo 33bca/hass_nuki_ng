@@ -74,12 +74,7 @@ class NukiButtonPressActionSelect(NukiEntity, SelectEntity):
         self.set_name(name)
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_icon = "mdi:gesture-tap-button"
-        self._attr_has_entity_name = True
 
-    @property
-    def name(self) -> str:
-        # Home Assistant adds the device name (also after a device rename).
-        return self.name_suffix
 
     @property
     def current_option(self) -> str | None:

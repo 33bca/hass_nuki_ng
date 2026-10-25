@@ -122,8 +122,8 @@ def _targeted_nuki_ids(hass: HomeAssistant, call) -> set[str]:
     """Nuki device ids (lock/opener) named by the call's target.
 
     Resolves devices, entities, areas, floors and labels the way Home Assistant
-    does. The Web API device ("web_<id>") counts as its lock; the bridge and
-    other devices map to nothing.
+    does. A Web API device ("web_<id>", merged into the lock since 0.6.3) counts
+    as its lock; the bridge and other devices map to nothing.
     """
     from homeassistant.helpers import entity_registry as er
     from homeassistant.helpers import target as target_helpers
@@ -221,7 +221,16 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
 # ------------------------------------------------------
 
 class NukiEntity(CoordinatorEntity):
-    """Base entity for Nuki locks and openers."""
+    """Base entity for Nuki locks and openers.
+
+    Every entity of a lock/opener (lock, sensors, buttons, selects and the
+    authorization switches) sits on ONE device, and its name is the entity part
+    only (has_entity_name): Home Assistant shows "<device name> <entity name>",
+    so renaming the device renames every entity. A name set on the entity in
+    Home Assistant is always used as-is; entity ids never change.
+    """
+
+    _attr_has_entity_name = True
 
     def __init__(self, coordinator, device_id: str):
         super().__init__(coordinator)
@@ -242,11 +251,12 @@ class NukiEntity(CoordinatorEntity):
 
     @property
     def get_name(self):
-        return "Nuki %s" % (self.data.get("name", self.device_id))
+        """Default device name: the name given in the Nuki app."""
+        return str(self.data.get("name") or "Nuki %s" % self.device_id)
 
     @property
-    def name(self) -> str:
-        return "%s %s" % (self.get_name, self.name_suffix)
+    def name(self) -> str | None:
+        return self.name_suffix
 
     @property
     def unique_id(self) -> str:
@@ -312,6 +322,8 @@ class NukiEntity(CoordinatorEntity):
 class NukiBridge(CoordinatorEntity):
     """Represents the Nuki Bridge device."""
 
+    _attr_has_entity_name = True
+
     def set_id(self, suffix: str):
         self.id_suffix = suffix
 
@@ -320,7 +332,7 @@ class NukiBridge(CoordinatorEntity):
 
     @property
     def name(self) -> str:
-        return "Nuki Bridge %s" % (self.name_suffix)
+        return self.name_suffix
 
     @property
     def unique_id(self) -> str:

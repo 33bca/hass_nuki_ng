@@ -182,7 +182,7 @@ class BridgeCallbackSet(NukiBridge, BinarySensorEntity):
     def __init__(self, coordinator):
         super().__init__(coordinator)
         self.set_id("callback_set")
-        self.set_name("Bridge Callback Set")
+        self.set_name("Callback Set")
 
     @property
     def is_on(self) -> bool:

@@ -191,3 +191,111 @@ def apply_plan(devices, migration_plan):
         del rows[merge.source_device_id]
 
     return list(rows.values())
+
+
+# ---------------------------------------------------------------------------
+#  0.6.3: one device per lock
+# ---------------------------------------------------------------------------
+
+EntityRow = migration.EntityRow
+web_plan = migration.plan_web_device_merge
+WEB = f"web_{LOCK_ID}"
+
+
+class TestWebDeviceMerge:
+    """The 0.6.2 shape: lock device + "Nuki Web" child holding the auth switches."""
+
+    def _registry(self, *, web_area="znowhere", lock_area="front_porch",
+                  web_disabled=False, lock_disabled=False):
+        devices = [
+            DeviceRow("lock", ids((DOMAIN, LOCK_ID)), area_id=lock_area,
+                      disabled=lock_disabled,
+                      entity_ids=("lock.front_door", "sensor.front_door_battery")),
+            DeviceRow("web", ids((DOMAIN, WEB)), via_device_id="lock",
+                      area_id=web_area, disabled=web_disabled,
+                      entity_ids=("switch.agency_8194", "switch.keypad_27191")),
+            DeviceRow("bridge", ids((DOMAIN, BRIDGE_ID))),
+        ]
+        return devices
+
+    def test_auth_switches_move_to_the_lock_device(self):
+        got = web_plan(self._registry(), {})
+        assert len(got.merges) == 1 and got.renames == ()
+        m = got.merges[0]
+        assert (m.source_device_id, m.target_device_id) == ("web", "lock")
+        assert m.move_entity_ids == ("switch.agency_8194", "switch.keypad_27191")
+
+    def test_entities_keep_the_area_they_had(self):
+        """No own area: they showed the Web device's area; pin it so nothing moves."""
+        entities = {"switch.keypad_27191": EntityRow("switch.keypad_27191", area_id="hall")}
+        m = web_plan(self._registry(), entities).merges[0]
+        assert m.keep_area == (("switch.agency_8194", "znowhere"),)
+
+    def test_same_area_needs_no_pin(self):
+        m = web_plan(self._registry(web_area="casa", lock_area="casa"), {}).merges[0]
+        assert m.keep_area == ()
+
+    def test_web_device_without_area_pins_nothing(self):
+        m = web_plan(self._registry(web_area=None), {}).merges[0]
+        assert m.keep_area == ()
+
+    def test_both_disabled_keeps_entities_as_they_are(self):
+        """Casa's lock inside the GB entry: both devices disabled by the user."""
+        entities = {e: EntityRow(e, disabled_by="device")
+                    for e in ("switch.agency_8194", "switch.keypad_27191")}
+        m = web_plan(self._registry(web_disabled=True, lock_disabled=True), entities).merges[0]
+        assert m.disable_by_device == () and m.disable_by_user == ()
+
+    def test_disabled_web_device_onto_enabled_lock_stays_off(self):
+        entities = {"switch.agency_8194": EntityRow("switch.agency_8194", disabled_by="device")}
+        m = web_plan(self._registry(web_disabled=True), entities).merges[0]
+        assert m.disable_by_user == ("switch.agency_8194",)
+        assert m.disable_by_device == ()
+
+    def test_enabled_entities_onto_disabled_lock_follow_the_device(self):
+        m = web_plan(self._registry(lock_disabled=True), {}).merges[0]
+        assert m.disable_by_device == ("switch.agency_8194", "switch.keypad_27191")
+
+    def test_user_disabled_entity_is_left_alone(self):
+        entities = {"switch.agency_8194": EntityRow("switch.agency_8194", disabled_by="user")}
+        m = web_plan(self._registry(lock_disabled=True), entities).merges[0]
+        assert "switch.agency_8194" not in m.disable_by_device
+
+    def test_done_registry_has_nothing_to_do(self):
+        devices = [d for d in self._registry() if d.device_id != "web"]
+        assert web_plan(devices, {}).is_empty
+
+    def test_each_lock_merges_into_its_own_device(self):
+        other = 17910279140
+        devices = self._registry() + [
+            DeviceRow("lock2", ids((DOMAIN, other)), entity_ids=("lock.casa",)),
+            DeviceRow("web2", ids((DOMAIN, f"web_{other}")), via_device_id="lock2",
+                      entity_ids=("switch.claudio",)),
+        ]
+        pairs = {(m.source_device_id, m.target_device_id) for m in web_plan(devices, {}).merges}
+        assert pairs == {("web", "lock"), ("web2", "lock2")}
+
+    def test_lone_web_device_becomes_the_lock_device(self):
+        devices = [DeviceRow("web", ids((DOMAIN, WEB)), entity_ids=("switch.a",))]
+        got = web_plan(devices, {})
+        assert got.merges == ()
+        assert got.renames[0].new_identifiers == ids((DOMAIN, LOCK_ID))
+
+    def test_lock_identifier_matches_int_or_str(self):
+        devices = [
+            DeviceRow("lock", ids((DOMAIN, str(LOCK_ID)))),
+            DeviceRow("web", ids((DOMAIN, WEB)), entity_ids=("switch.a",)),
+        ]
+        assert web_plan(devices, {}).merges[0].target_device_id == "lock"
+
+    def test_legacy_web_id_then_merge(self):
+        """Pre-0.5 install: identifier migration renames ("web_id", x) to
+        (DOMAIN, "web_x"); the merge then folds it into the lock."""
+        devices = [
+            DeviceRow("lock", ids((DOMAIN, LOCK_ID))),
+            DeviceRow("web", ids(("web_id", LOCK_ID)), via_device_id="lock",
+                      entity_ids=("switch.a",)),
+        ]
+        rename = plan(devices).renames[0]
+        after = [devices[0], DeviceRow("web", rename.new_identifiers, entity_ids=("switch.a",))]
+        assert web_plan(after, {}).merges[0].target_device_id == "lock"
