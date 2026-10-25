@@ -64,10 +64,10 @@ class TestAuthAttributes:
         assert planning.auth_attributes({"type": 99})["Type"] == 99
 
     def test_object_id_ends_with_auth_id(self):
-        assert planning.auth_object_id("Door", self.AUTH, "abc").endswith(" 4242")
+        assert planning.auth_object_id(self.AUTH, "abc").endswith(" 4242")
 
     def test_object_id_falls_back_to_entry_id(self):
-        assert planning.auth_object_id("Door", {"name": "X"}, "abc").endswith(" abc")
+        assert planning.auth_object_id({"name": "X"}, "abc").endswith(" abc")
 
 
 class TestRemovedAuths:
@@ -101,3 +101,15 @@ class TestActionMismatches:
 
     def test_unknown_device_kind_is_refused(self):
         assert planning.action_mismatches("lock", {3: "other"}) == [3]
+
+
+class TestFrozenAuthName:
+    def test_legacy_full_name_keeps_entry_part(self):
+        assert planning.frozen_auth_name("Nuki Door authorization: Guest (Code)") == "Guest (Code)"
+
+    def test_new_style_name_kept(self):
+        assert planning.frozen_auth_name("Guest") == "Guest"
+
+    def test_none(self):
+        assert planning.frozen_auth_name(None) is None
+        assert planning.frozen_auth_name("Nuki Door authorization: ") is None

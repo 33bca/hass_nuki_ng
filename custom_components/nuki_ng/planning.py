@@ -60,15 +60,15 @@ def auth_attributes(auth: dict) -> dict:
     }
 
 
-def auth_object_id(device_name: str, auth: dict, auth_id) -> str:
-    """Entity id suggestion for a NEW authorization switch.
+def auth_object_id(auth: dict, auth_id) -> str:
+    """Entity id suggestion for a NEW authorization switch (HA adds the device name).
 
     Ends with the Nuki auth id, so an entity id keeps naming the same Nuki
     entry even after the entry is renamed. Ids already in the entity registry
     are never changed by this.
     """
     name = auth.get("name") or "undefined"
-    return f"Nuki {device_name} authorization {name} {auth.get('authId') or auth_id}"
+    return f"{name} {auth.get('authId') or auth_id}"
 
 
 def removed_auths(known: set, device_auths: dict, fetched_ok: dict) -> set:
@@ -113,3 +113,17 @@ def action_mismatches(action: str, devices: dict) -> list:
     else:
         return sorted(devices, key=str)
     return sorted((d for d, kind in devices.items() if kind != wanted), key=str)
+
+
+def frozen_auth_name(original_name: str | None) -> str | None:
+    """The authorization switch name to keep, from its registry original_name.
+
+    Releases before 0.6.0 stored "Nuki <lock> authorization: <entry>"; only the
+    entry part is kept (the device name is added by Home Assistant).
+    """
+    if not original_name:
+        return None
+    marker = "authorization: "
+    if marker in original_name:
+        return original_name.split(marker, 1)[1] or None
+    return original_name

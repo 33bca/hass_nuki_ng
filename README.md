@@ -6,6 +6,9 @@
 > It gathers the open upstream pull requests and fork fixes, plus fixes nobody had shipped yet.
 > Requires Home Assistant 2026.10 or newer.
 
+### 0.6.1
+* Authorization switches use Home Assistant entity naming (device name + entry name), so renaming the Web API device no longer turns their names into "Nuki <lock> authorization: <entry>"; names from older releases are converted
+
 ### Changes in 0.6.0 (vs upstream 0.5.5)
 
 Merged from upstream PRs and forks (authorship kept in the git history):
