@@ -70,7 +70,13 @@ class NukiSyncButton(NukiEntity, ButtonEntity):
         self.set_id("button", "sync")
         self.set_name("Sync")
         self._attr_icon = "mdi:sync"
+        self._attr_has_entity_name = True
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def name(self) -> str:
+        # Home Assistant adds the device name (also after a device rename).
+        return self.name_suffix
 
     async def async_press(self) -> None:
         await self.coordinator.do_sync(self.device_id)

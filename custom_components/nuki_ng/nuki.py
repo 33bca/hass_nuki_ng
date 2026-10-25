@@ -6,6 +6,8 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers import device_registry as dr
+from functools import partial
 from homeassistant.helpers.network import get_url
 from homeassistant.components import webhook
 from homeassistant.exceptions import HomeAssistantError
@@ -18,7 +20,7 @@ from datetime import timedelta, datetime, timezone
 from urllib.parse import urlencode
 
 from .constants import DOMAIN
-from .planning import BRIDGE_CALLBACK_CHECK, plan_callback_changes
+from .planning import BRIDGE_CALLBACK_CHECK, devices_to_sync, plan_callback_changes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +33,8 @@ BRIDGE_DISCOVERY_API = "https://api.nuki.io/discover/bridges"
 BRIDGE_HOOK = "nuki_ng_bridge_hook"
 BRIDGE_TIMEOUT = 10
 AUTH_READBACK_DELAY = 5
+# Writes to several entries in a row share one Nuki Web sync.
+AUTH_SYNC_DELAY = 2
 
 LOCK_DEVICE_TYPES = (0, 3, 4, 5)
 OPENER_DEVICE_TYPES = (2,)
@@ -392,6 +396,8 @@ class NukiInterface:
 class NukiCoordinator(DataUpdateCoordinator):
     def __init__(self, hass, entry, config: dict):
         self.entry = entry
+        self._pending_syncs = {}
+        entry.async_on_unload(self._cancel_pending_syncs)
         self.api = NukiInterface(
             hass,
             bridge=config.get("address"),
@@ -582,9 +588,21 @@ class NukiCoordinator(DataUpdateCoordinator):
         await self.async_request_refresh()
 
     async def sync_on_start(self):
+        """Ask Nuki Web to sync each enabled lock/opener once, at setup.
+
+        Devices disabled in Home Assistant (for example another house's lock on
+        the same Nuki Web account) are left alone.
+        """
         if not self.api.can_web():
             return
-        for dev_id in self.data.get("devices", {}):
+        registry = dr.async_get(self.hass)
+        devices = list(self.data.get("devices", {}))
+        disabled = set()
+        for dev_id in devices:
+            device = registry.async_get_device(identifiers={(DOMAIN, dev_id)})
+            if device is not None and device.disabled:
+                disabled.add(dev_id)
+        for dev_id in devices_to_sync(devices, disabled):
             try:
                 await self.api.web_sync(self.web_id(dev_id))
             except Exception:
@@ -633,8 +651,29 @@ class NukiCoordinator(DataUpdateCoordinator):
                 key
             ]
         self.async_set_updated_data(data)
-        # Read the entry back from the Web API shortly after the write, so the
-        # switch reflects what the cloud really holds (not only our local copy).
+        # Ask Nuki Web to sync with the lock (the "Update now" of Nuki Web), so
+        # the change reaches the lock and the entry list is fresh, then read the
+        # entries back so the switch reflects what the cloud really holds.
+        self._schedule_auth_sync(dev_id)
+
+    def _schedule_auth_sync(self, dev_id):
+        if (cancel := self._pending_syncs.pop(dev_id, None)) is not None:
+            cancel()
+        self._pending_syncs[dev_id] = async_call_later(
+            self.hass, AUTH_SYNC_DELAY, partial(self._sync_after_auth_write, dev_id)
+        )
+
+    def _cancel_pending_syncs(self):
+        for cancel in self._pending_syncs.values():
+            cancel()
+        self._pending_syncs.clear()
+
+    async def _sync_after_auth_write(self, dev_id, _now=None):
+        self._pending_syncs.pop(dev_id, None)
+        try:
+            await self.api.web_sync(self.web_id(dev_id))
+        except Exception as err:
+            _LOGGER.warning("Nuki Web sync after an authorization change failed for %s: %s", dev_id, err)
         self.entry.async_on_unload(
             async_call_later(self.hass, AUTH_READBACK_DELAY, self._readback)
         )

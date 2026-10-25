@@ -6,7 +6,7 @@ import logging
 
 from . import NukiEntity, NukiOpenerRingSuppressionEntity, via_device_id
 from .constants import DOMAIN
-from .planning import AUTH_ICONS, auth_attributes, auth_object_id, frozen_auth_name, removed_auths
+from .planning import AUTH_ICONS, auth_attributes, auth_object_id, removed_auths
 from .states import LockModes
 
 _LOGGER = logging.getLogger(__name__)
@@ -80,19 +80,10 @@ class AuthEntry(NukiEntity, SwitchEntity):
 
     @property
     def name(self) -> str:
-        # Home Assistant prefixes the device name. The entry name is frozen at
-        # first registration: renaming the entry in the Nuki app no longer
-        # renames the switch (the current Nuki name is an attribute). Rename it
-        # in Home Assistant instead.
-        live = self.auth_data.get("name", "undefined")
-        if getattr(self, "_frozen_name", None) is None and self.hass is not None:
-            from homeassistant.helpers import entity_registry as er
-
-            registry = er.async_get(self.hass)
-            entity_id = registry.async_get_entity_id("switch", DOMAIN, self.unique_id)
-            entry = registry.async_get(entity_id) if entity_id else None
-            self._frozen_name = frozen_auth_name(entry.original_name if entry else None) or live
-        return getattr(self, "_frozen_name", None) or live
+        # Home Assistant prefixes the device name. The name follows the entry's
+        # current name in the Nuki app / Nuki Web; a name set in Home Assistant
+        # always wins. Entity ids never change on a rename.
+        return self.auth_data.get("name") or "undefined"
 
     @property
     def suggested_object_id(self) -> str | None:

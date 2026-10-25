@@ -6,6 +6,12 @@
 > It gathers the open upstream pull requests and fork fixes, plus fixes nobody had shipped yet.
 > Requires Home Assistant 2026.10 or newer.
 
+### 0.6.2
+* Authorization switch names follow the entry's current name in the Nuki app / Nuki Web again (a name set in Home Assistant still wins; entity ids never change). "Recreate entity IDs" in HA then gives ids such as `..._guest_finger_8198`
+* Sync button and button-press selects use Home Assistant entity naming, so a renamed lock no longer shows its name twice
+* After an authorization switch changes an entry, Nuki Web is asked to sync with the lock (one sync per burst of changes), then the entry is read back
+* At setup, Nuki Web is asked to sync each enabled lock/opener once (disabled devices are skipped), so changes made on the lock (app, keypad, Nuki Hub) show up without pressing "Update now" in Nuki Web
+
 ### 0.6.1
 * Authorization switches use Home Assistant entity naming (device name + entry name), so renaming the Web API device no longer turns their names into "Nuki <lock> authorization: <entry>"; names from older releases are converted
 

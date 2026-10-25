@@ -103,13 +103,12 @@ class TestActionMismatches:
         assert planning.action_mismatches("lock", {3: "other"}) == [3]
 
 
-class TestFrozenAuthName:
-    def test_legacy_full_name_keeps_entry_part(self):
-        assert planning.frozen_auth_name("Nuki Door authorization: Guest (Code)") == "Guest (Code)"
+class TestDevicesToSync:
+    def test_disabled_device_is_skipped(self):
+        assert planning.devices_to_sync([1001, 1002], {1002}) == [1001]
 
-    def test_new_style_name_kept(self):
-        assert planning.frozen_auth_name("Guest") == "Guest"
+    def test_all_enabled(self):
+        assert planning.devices_to_sync([1, 2], set()) == [1, 2]
 
-    def test_none(self):
-        assert planning.frozen_auth_name(None) is None
-        assert planning.frozen_auth_name("Nuki Door authorization: ") is None
+    def test_no_devices(self):
+        assert planning.devices_to_sync([], {1}) == []

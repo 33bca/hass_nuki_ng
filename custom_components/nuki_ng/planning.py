@@ -115,15 +115,6 @@ def action_mismatches(action: str, devices: dict) -> list:
     return sorted((d for d, kind in devices.items() if kind != wanted), key=str)
 
 
-def frozen_auth_name(original_name: str | None) -> str | None:
-    """The authorization switch name to keep, from its registry original_name.
-
-    Releases before 0.6.0 stored "Nuki <lock> authorization: <entry>"; only the
-    entry part is kept (the device name is added by Home Assistant).
-    """
-    if not original_name:
-        return None
-    marker = "authorization: "
-    if marker in original_name:
-        return original_name.split(marker, 1)[1] or None
-    return original_name
+def devices_to_sync(dev_ids, disabled) -> list:
+    """Devices to ask Nuki Web to sync at setup: every one not disabled in HA."""
+    return [dev_id for dev_id in dev_ids if dev_id not in disabled]

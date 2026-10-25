@@ -64,6 +64,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     await coordinator.async_config_entry_first_refresh()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_options_updated))
+    # Nuki Web may not have seen changes made on the lock itself (app, keypad,
+    # Nuki Hub) yet: ask it to sync each enabled lock once, in the background.
+    entry.async_create_background_task(
+        hass, coordinator.sync_on_start(), "nuki_ng sync on start"
+    )
 
     return True
 
