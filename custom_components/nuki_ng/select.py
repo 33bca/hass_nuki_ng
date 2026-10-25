@@ -31,31 +31,35 @@ async def async_setup_entry(
     @callback
     def _add_new():
         new = []
+        # Per (device, setting), not per device: they come from Nuki Web, which
+        # may only answer on a later poll.
         for dev_id in coordinator.data.get("devices", {}):
-            if dev_id not in known:
-                known.add(dev_id)
-                for config_key, name, id_suffix in (
-                    (
-                        "singleButtonPressAction",
-                        "Single button press action",
-                        "single_button_press_action",
-                    ),
-                    (
-                        "doubleButtonPressAction",
-                        "Double button press action",
-                        "double_button_press_action",
-                    ),
-                ):
-                    if coordinator.info_field(
-                        dev_id, -1, "advancedConfig", config_key
-                    ) in BUTTON_PRESS_ACTIONS:
-                        new.append(
-                            NukiButtonPressActionSelect(
-                                coordinator, dev_id, config_key, name, id_suffix
-                            )
+            for config_key, name, id_suffix in (
+                (
+                    "singleButtonPressAction",
+                    "Single button press action",
+                    "single_button_press_action",
+                ),
+                (
+                    "doubleButtonPressAction",
+                    "Double button press action",
+                    "double_button_press_action",
+                ),
+            ):
+                if (dev_id, config_key) not in known and coordinator.info_field(
+                    dev_id, -1, "advancedConfig", config_key
+                ) in BUTTON_PRESS_ACTIONS:
+                    known.add((dev_id, config_key))
+                    new.append(
+                        NukiButtonPressActionSelect(
+                            coordinator, dev_id, config_key, name, id_suffix
                         )
-                if coordinator.info_field(dev_id, -1, "openerAdvancedConfig", "doorbellSuppression") >= 0:
-                    new.append(NukiOpenerRingSuppressionSelect(coordinator, dev_id))
+                    )
+            if (dev_id, "ring_suppression") not in known and coordinator.info_field(
+                dev_id, -1, "openerAdvancedConfig", "doorbellSuppression"
+            ) >= 0:
+                known.add((dev_id, "ring_suppression"))
+                new.append(NukiOpenerRingSuppressionSelect(coordinator, dev_id))
         if new:
             async_add_entities(new)
 

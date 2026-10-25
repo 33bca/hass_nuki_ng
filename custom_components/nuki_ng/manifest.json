@@ -7,8 +7,8 @@
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/cmatte/hass_nuki_ng",
-  "iot_class": "local_polling",
+  "iot_class": "local_push",
   "issue_tracker": "https://github.com/cmatte/hass_nuki_ng/issues",
   "requirements": [],
-  "version": "0.6.4"
+  "version": "0.6.5"
 }

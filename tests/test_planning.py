@@ -112,3 +112,94 @@ class TestDevicesToSync:
 
     def test_no_devices(self):
         assert planning.devices_to_sync([], {1}) == []
+
+
+class TestCarryWebData:
+    PREVIOUS = {
+        "nukiId": 1,
+        "config": {"buttonEnabled": True},
+        "advancedConfig": {"autoLock": False},
+        "web_auth": {7: {"id": 7, "name": "A"}},
+        "last_log": {"name": "A"},
+    }
+
+    def test_missing_fields_come_from_the_last_good_poll(self):
+        item = {"nukiId": 1}
+        planning.carry_web_data(item, self.PREVIOUS)
+        assert item["config"] == {"buttonEnabled": True}
+        assert item["advancedConfig"] == {"autoLock": False}
+        assert item["web_auth"] == {7: {"id": 7, "name": "A"}}
+        assert item["last_log"] == {"name": "A"}
+        assert item["last_unlock_log"] == {}
+        assert item["web_auth_ok"] is False
+
+    def test_fresh_fields_are_kept(self):
+        item = {"nukiId": 1, "config": {"buttonEnabled": False}}
+        planning.carry_web_data(item, self.PREVIOUS)
+        assert item["config"] == {"buttonEnabled": False}
+
+    def test_no_previous_poll(self):
+        item = {"nukiId": 1}
+        planning.carry_web_data(item, {})
+        assert item["web_auth"] == {}
+        assert "config" not in item
+        assert item["web_auth_ok"] is False
+
+
+class TestPlanReconfigure:
+    DATA = {"address": "old.lan", "token": "t1", "web_token": "w1", "hass_url": "http://ha:8123", "update_seconds": 30}
+
+    def test_new_address_only(self):
+        updates, options = planning.plan_reconfigure(
+            self.DATA, {"update_seconds": 20}, {"address": "new.lan", "token": "", "web_token": ""}
+        )
+        assert updates == {"address": "new.lan"}
+        assert options == {"update_seconds": 20}
+
+    def test_blank_fields_keep_the_current_values(self):
+        updates, _ = planning.plan_reconfigure(self.DATA, {}, {"address": "", "hass_url": "", "token": "", "web_token": ""})
+        assert updates == {}
+
+    def test_new_token_replaces_one_set_in_the_options(self):
+        updates, options = planning.plan_reconfigure(
+            self.DATA, {"token": "t2", "use_hashed": True}, {"token": "t3"}
+        )
+        assert updates == {"token": "t3"}
+        # Otherwise the options token would still win at setup
+        assert options == {"use_hashed": True}
+
+    def test_unchanged_values_are_no_updates(self):
+        updates, _ = planning.plan_reconfigure(self.DATA, {}, {"address": "old.lan", "web_token": "w1"})
+        assert updates == {}
+
+    def test_effective_config(self):
+        updates, options = planning.plan_reconfigure(self.DATA, {"token": "t2"}, {"address": "new.lan"})
+        assert planning.effective_config(self.DATA, updates, options)["address"] == "new.lan"
+        assert planning.effective_config(self.DATA, updates, options)["token"] == "t2"
+
+
+class TestSameBridge:
+    def test_same_hardware_id(self):
+        assert planning.is_same_bridge({1}, 1) is True
+
+    def test_other_bridge(self):
+        assert planning.is_same_bridge({1, "12345"}, 2) is False
+
+    def test_unknown_before(self):
+        # Web-only entries or entries whose bridge never answered: nothing to compare
+        assert planning.is_same_bridge(set(), 2) is True
+
+    def test_new_bridge_reports_no_id(self):
+        assert planning.is_same_bridge({"1"}, None) is False
+
+
+class TestWebRetry:
+    def test_web_is_asked_when_never_failed(self):
+        from datetime import datetime, timezone
+        assert planning.web_due(None, datetime.now(timezone.utc)) is True
+
+    def test_web_waits_after_a_failure(self):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        assert planning.web_due(now, now + planning.WEB_RETRY / 2) is False
+        assert planning.web_due(now, now + planning.WEB_RETRY) is True

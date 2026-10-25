@@ -12,6 +12,16 @@
           "hass_url": "Home Assistant internal URL",
           "update_seconds": "State polling interval (seconds)"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Nuki device",
+        "description": "Change the bridge address, e.g. after it got a new IP address. Leave a token blank to keep the current one.",
+        "data": {
+          "address": "Nuki bridge hostname or IP address",
+          "hass_url": "Home Assistant internal URL",
+          "token": "New bridge API token (blank: keep the current one)",
+          "web_token": "New Web API token (blank: keep the current one)"
+        }
       }
     },
     "error": {
@@ -19,7 +29,11 @@
       "invalid_web_token": "Error communicating with Nuki Web API",
       "no_token": "Either Bridge token or Web API token is required",
       "no_bridge_url": "Bridge address is required",
-      "https_not_supported": "Bridge doesn't support HTTPS callbacks. Please make your Home Assistant accessible via HTTP"
+      "https_not_supported": "Bridge doesn't support HTTPS callbacks. Please make your Home Assistant accessible via HTTP",
+      "different_bridge": "This is a different Nuki bridge. Add it as a new entry instead."
+    },
+    "abort": {
+      "reconfigure_successful": "Nuki device updated"
     }
   },
   "options": {

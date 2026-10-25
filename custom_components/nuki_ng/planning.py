@@ -118,3 +118,68 @@ def action_mismatches(action: str, devices: dict) -> list:
 def devices_to_sync(dev_ids, disabled) -> list:
     """Devices to ask Nuki Web to sync at setup: every one not disabled in HA."""
     return [dev_id for dev_id in dev_ids if dev_id not in disabled]
+
+
+# Nuki Web (api.nuki.io) fields; everything else comes from the bridge when there is one.
+WEB_CONFIG_FIELDS = ("config", "advancedConfig", "openerAdvancedConfig")
+WEB_POLL_FIELDS = ("web_auth", "last_unlock_log", "last_log")
+# After Nuki Web fails, the bridge keeps being polled as usual and Nuki Web is
+# asked again only after this, so a cloud outage does not slow every poll down.
+WEB_RETRY = timedelta(minutes=2)
+
+
+def web_due(failed_at, now) -> bool:
+    """Whether to call Nuki Web on this poll (never failed, or WEB_RETRY passed)."""
+    return failed_at is None or now - failed_at >= WEB_RETRY
+
+
+def carry_web_data(item: dict, previous: dict) -> dict:
+    """Fill the Nuki Web fields of a bridge item from the last good poll.
+
+    Used when Nuki Web did not answer: entities built on those fields keep
+    their last value instead of flapping, and the authorization switches are
+    marked not freshly fetched (so none is released as deleted).
+    """
+    for field in WEB_CONFIG_FIELDS:
+        if item.get(field) is None and previous.get(field) is not None:
+            item[field] = previous[field]
+    for field in WEB_POLL_FIELDS:
+        item.setdefault(field, previous.get(field, {}))
+    item["web_auth_ok"] = False
+    return item
+
+
+# Settings the reconfigure step can change. A blank field keeps the current value.
+RECONFIGURE_FIELDS = ("address", "hass_url", "token", "web_token")
+
+
+def plan_reconfigure(data: dict, options: dict, user_input: dict):
+    """Split a reconfigure form into entry-data updates and the new options.
+
+    Options override the data at setup, so a value set here is removed from the
+    options (only the bridge token can be in both), or it would not apply.
+    Returns (data_updates, options).
+    """
+    current = {**data, **options}
+    updates = {
+        key: value
+        for key in RECONFIGURE_FIELDS
+        if (value := user_input.get(key)) not in (None, "") and value != current.get(key)
+    }
+    new_options = {key: value for key, value in options.items() if key not in updates}
+    return updates, new_options
+
+
+def effective_config(data: dict, updates: dict, options: dict) -> dict:
+    """The configuration setup will use after a reconfigure."""
+    return {**data, **updates, **options}
+
+
+def is_same_bridge(known_bridge_ids: set, hardware_id) -> bool:
+    """Whether the bridge at the new address is the one this entry already knows.
+
+    No known bridge (Web-only entry, or the bridge never answered) → nothing to compare.
+    """
+    if not known_bridge_ids:
+        return True
+    return hardware_id is not None and str(hardware_id) in {str(i) for i in known_bridge_ids}

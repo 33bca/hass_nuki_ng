@@ -20,7 +20,14 @@ from datetime import timedelta, datetime, timezone
 from urllib.parse import urlencode
 
 from .constants import DOMAIN
-from .planning import BRIDGE_CALLBACK_CHECK, devices_to_sync, plan_callback_changes
+from .planning import (
+    BRIDGE_CALLBACK_CHECK,
+    carry_web_data,
+    devices_to_sync,
+    plan_callback_changes,
+    WEB_RETRY,
+    web_due,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,6 +39,9 @@ def _mask_token(url: str) -> str:
 BRIDGE_DISCOVERY_API = "https://api.nuki.io/discover/bridges"
 BRIDGE_HOOK = "nuki_ng_bridge_hook"
 BRIDGE_TIMEOUT = 10
+# Nuki Web requests had no timeout: an api.nuki.io outage could hang a poll
+# (and so the setup) for minutes.
+WEB_TIMEOUT = 20
 AUTH_READBACK_DELAY = 5
 # Writes to several entries in a row share one Nuki Web sync.
 AUTH_SYNC_DELAY = 2
@@ -39,6 +49,21 @@ AUTH_SYNC_DELAY = 2
 LOCK_DEVICE_TYPES = (0, 3, 4, 5)
 OPENER_DEVICE_TYPES = (2,)
 WEB_DEVICE_TYPES = (0, 2, 4, 5)  # Type 3 (Smart Door) is bridge-only
+
+class _WithTimeout:
+    """`requests` with a default timeout, for the Nuki Web calls."""
+
+    def __init__(self, timeout):
+        self._timeout = timeout
+
+    def get(self, *args, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return requests.get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return requests.post(*args, **kwargs)
+
 
 class NukiInterface:
     def __init__(
@@ -56,7 +81,7 @@ class NukiInterface:
         except requests.RequestException as err:
             # The message carries the request URL, which holds the plain bridge token.
             raise HomeAssistantError(
-                f"Bridge request failed: {type(err).__name__}: {_mask_token(str(err))}"
+                f"Request failed: {type(err).__name__}: {_mask_token(str(err))}"
             ) from None
         if not response.ok:
             if response.status_code == 401 and self.use_hashed and self.bridge and self.bridge in response.request.url:
@@ -69,8 +94,13 @@ class NukiInterface:
         if response.status_code > 200:
             _LOGGER.debug(f"async_json: http status: {response.status_code} - {response.text}")
             return dict()
-        json_resp = response.json()
-        return json_resp
+        try:
+            return response.json()
+        except ValueError as err:
+            # e.g. an HTML error page from a proxy with status 200
+            raise HomeAssistantError(
+                f"Invalid JSON from {_mask_token(response.request.url)}: {type(err).__name__}"
+            ) from None
 
     async def discover_bridge(self) -> str:
         try:
@@ -228,7 +258,7 @@ class NukiInterface:
 
     async def web_async_json(self, cb):
         return await self.async_json(
-            lambda r: cb(r, {"authorization": f"Bearer {self.web_token}"})
+            lambda r: cb(_WithTimeout(WEB_TIMEOUT), {"authorization": f"Bearer {self.web_token}"})
         )
 
     def can_web(self):
@@ -397,6 +427,7 @@ class NukiCoordinator(DataUpdateCoordinator):
     def __init__(self, hass, entry, config: dict):
         self.entry = entry
         self._pending_syncs = {}
+        self._web_failed_at = None
         entry.async_on_unload(self._cancel_pending_syncs)
         self.api = NukiInterface(
             hass,
@@ -483,12 +514,17 @@ class NukiCoordinator(DataUpdateCoordinator):
                     info_mapping[item.get("nukiId")] = item
                 bridge_info["callbacks_list"] = callbacks_list
                 device_list = await self.api.bridge_list()
-            if self.api.can_web():
+            web_ok = False
+            if self.api.can_web() and (
+                not device_list or web_due(self._web_failed_at, datetime.now(timezone.utc))
+            ):
                 try:
                     web_list = await self.api.web_list()
-                except HomeAssistantError:
-                    _LOGGER.warning("Despite being configured, Web API request has failed")
-                    _LOGGER.exception("Error while fetching list of devices via web API:")
+                    web_ok = True
+                except Exception as err:
+                    if not device_list:
+                        raise  # Web API only: nothing to show without it
+                    self._web_failed(err)
                 if not device_list:
                     device_list = web_list
             result = dict(devices={}, bridge_info=bridge_info)
@@ -499,37 +535,47 @@ class NukiCoordinator(DataUpdateCoordinator):
                 if self.api.can_web():
                     web_id = web_id_for_item(item)
                     item["webId"] = web_id
-                    try:
-                        item["web_auth"] = await self.api.web_list_all_auths(web_id)
-                        item["web_auth_ok"] = True
-                    except HomeAssistantError as err:
-                        _LOGGER.warning("Despite being configured, Web API request has failed")
-                        _LOGGER.exception(f"Error while fetching auth: {err}")
-                        item["web_auth"] = self.device_data(dev_id).get("web_auth", {})
-                        item["web_auth_ok"] = False
-                    try:
-                        item["last_unlock_log"] = await self.api.web_get_last_unlock_log(web_id)
-                    except HomeAssistantError as err:
-                        _LOGGER.warning("Despite being configured, Web API request has failed")
-                        _LOGGER.exception(f"Error while fetching last unlock log entry: {err}")
-                        item["last_unlock_log"] = self.device_data(dev_id).get("last_unlock_log", {})
-                    try:
-                        item["last_log"] = await self.api.web_get_last_log(web_id)
-                    except HomeAssistantError as err:
-                        _LOGGER.warning("Despite being configured, Web API request has failed")
-                        _LOGGER.exception(f"Error while fetching last log entry: {err}")
-                        item["last_log"] = self.device_data(dev_id).get("last_log", {})
-                if web_list:
-                    item["config"] = web_list.get(web_id, {}).get("config")
-                    item["advancedConfig"] = web_list.get(web_id, {}).get("advancedConfig")
-                    item["openerAdvancedConfig"] = web_list.get(web_id, {}).get("openerAdvancedConfig")
+                    device_web_ok = False
+                    # Only devices Nuki Web holds (not e.g. a Smart Door, or a lock
+                    # of another account); a failure here affects this device only.
+                    if web_ok and web_id in web_list:
+                        try:
+                            item["web_auth"] = await self.api.web_list_all_auths(web_id)
+                            item["web_auth_ok"] = True
+                            item["last_unlock_log"] = await self.api.web_get_last_unlock_log(web_id)
+                            item["last_log"] = await self.api.web_get_last_log(web_id)
+                            device_web_ok = True
+                        except Exception as err:
+                            _LOGGER.warning(
+                                "Nuki Web request for device %s failed: %s", dev_id, _mask_token(str(err))
+                            )
+                    if web_list:
+                        for field in ("config", "advancedConfig", "openerAdvancedConfig"):
+                            item[field] = web_list.get(web_id, {}).get(field)
+                    if not device_web_ok:
+                        # No fresh Nuki Web data for this device: keep its last good data
+                        carry_web_data(item, self.device_data(dev_id))
                 result["devices"][dev_id] = item
                 result["devices"][dev_id]["bridge_info"] = info_mapping.get(dev_id)
+            if web_ok and self._web_failed_at is not None:
+                _LOGGER.info("Nuki Web answers again")
+                self._web_failed_at = None
             # No dump of `result`: the Web API auth entries hold keypad PINs.
             return result
         except Exception as err:
             _LOGGER.exception(f"Failed to get latest data: {err}")
             raise UpdateFailed from err
+
+    def _web_failed(self, err):
+        """Note a Nuki Web failure: bridge entities stay up, Nuki Web is retried later."""
+        if self._web_failed_at is None:
+            _LOGGER.warning(
+                "Nuki Web is not answering, using the bridge only and retrying Nuki Web every %s: %s",
+                WEB_RETRY, _mask_token(str(err)),
+            )
+        else:
+            _LOGGER.debug("Nuki Web still not answering: %s", _mask_token(str(err)))
+        self._web_failed_at = datetime.now(timezone.utc)
 
     def _make_update_method(self):
         async def _update_data():
@@ -595,6 +641,9 @@ class NukiCoordinator(DataUpdateCoordinator):
         """
         if not self.api.can_web():
             return
+        if self._web_failed_at is not None:
+            _LOGGER.debug("Nuki Web is not answering, no sync at setup")
+            return
         registry = dr.async_get(self.hass)
         devices = list(self.data.get("devices", {}))
         disabled = set()
@@ -616,13 +665,14 @@ class NukiCoordinator(DataUpdateCoordinator):
             raise HomeAssistantError("Not supported")
 
     def device_data(self, dev_id: str):
-        return self.data.get("devices", {}).get(dev_id, {})
+        # self.data is None until the first poll succeeds
+        return (self.data or {}).get("devices", {}).get(dev_id, {})
 
     def web_id(self, dev_id: str):
         return self.device_data(dev_id).get("webId", dev_id)
 
     def info_data(self):
-        return self.data.get("bridge_info") or {}
+        return (self.data or {}).get("bridge_info") or {}
 
     def is_lock(self, dev_id: str) -> bool:
         return self.device_data(dev_id).get("deviceType") in LOCK_DEVICE_TYPES

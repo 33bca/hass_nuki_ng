@@ -6,6 +6,11 @@
 > It gathers the open upstream pull requests and fork fixes, plus fixes nobody had shipped yet.
 > Requires Home Assistant 2026.10 or newer.
 
+### 0.6.5
+* *Reconfigure* (integration entry → ⋮ → Reconfigure): change the bridge address, the Home Assistant URL, the bridge token or the Web API token of an existing entry, e.g. after the bridge got a new IP address. Checked against the bridge before saving; a different bridge is refused, so devices and entity ids stay the same (upstream #236, #140, #206, #18)
+* Setup no longer fails when Nuki Web (api.nuki.io) is down while the bridge works: the bridge entities start, Nuki Web data keeps its last value and Nuki Web is retried every 2 minutes; its entities appear once it answers. Nuki Web requests time out after 20 s instead of hanging (upstream #229, #226, #200)
+* `iot_class` is `local_push`: with a bridge, state changes arrive through the bridge callback, polling is only the fallback (upstream #10, PR #15)
+
 ### 0.6.4
 * "Last Log" and "Last Unlock user" sensors exist for every lock/opener when the Nuki Web API is configured (before, only if the Nuki Web activity log already had a matching entry at the first poll)
 
@@ -85,6 +90,11 @@ Install: HACS → Custom repositories → `https://github.com/cmatte/hass_nuki_n
 * You can provide both, but you need to provide at least one
   
   
+#### Changing the bridge address or tokens later:
+Open the integration entry, click ⋮ and *Reconfigure*. Enter the new bridge hostname or IP address (and, if needed, a
+new bridge or Web API token; leave a token blank to keep the current one). The bridge at the new address must be
+the same bridge the entry already uses. The poll interval and the hashed-token setting stay under *Configure*.
+
 #### Bridge API Token:
 The API token for the Nuki Bridge needs to be configured on the bridge, e.g. using the Nuki mobile app. The
 [Home Assistant Nuki documentation](https://www.home-assistant.io/integrations/nuki/) explains it like this:

@@ -1,9 +1,11 @@
 from homeassistant import config_entries
 import homeassistant.helpers.config_validation as cv
 from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.network import get_url
 from .constants import DOMAIN
 from .nuki import NukiInterface, _mask_token
+from .planning import effective_config, is_same_bridge, plan_reconfigure
 
 import logging
 import voluptuous as vol
@@ -104,6 +106,88 @@ class NukiNGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user", data_schema=schema, errors=errors
         )
+
+    async def async_step_reconfigure(self, user_input=None):
+        """Change the bridge address (and tokens, HA URL) of an existing entry.
+
+        Blank fields keep their current value; tokens are never pre-filled.
+        The bridge at the new address must be the one the entry already has,
+        so the devices and entity ids stay the same.
+        """
+        entry = self._get_reconfigure_entry()
+        current = {**entry.data, **entry.options}
+        errors = None
+        if user_input is not None:
+            updates, options = plan_reconfigure(dict(entry.data), dict(entry.options), user_input)
+            config = effective_config(dict(entry.data), updates, options)
+            errors = await self._check_reconfigure(entry, config, updates)
+            if not errors:
+                # The options listener reloads a loaded entry on a change. An entry
+                # whose setup failed (e.g. the bridge moved) has no listener: reload it here.
+                reload = not entry.update_listeners or (
+                    not updates and options == dict(entry.options)
+                )
+                result = self.async_update_and_abort(
+                    entry, data_updates=updates, options=options,
+                    reason="reconfigure_successful",
+                )
+                if reload:
+                    self.hass.config_entries.async_schedule_reload(entry.entry_id)
+                return result
+        defaults = {**current, **(user_input or {})}
+        schema = vol.Schema({
+            vol.Optional("address", default=defaults.get("address", "")): cv.string,
+            vol.Optional("hass_url", default=defaults.get("hass_url", "")): cv.string,
+            vol.Optional("token", default=""): cv.string,
+            vol.Optional("web_token", default=""): cv.string,
+        })
+        return self.async_show_form(
+            step_id="reconfigure", data_schema=schema, errors=errors
+        )
+
+    async def _check_reconfigure(self, entry, config: dict, updates: dict):
+        if config.get("hass_url", "").lower().startswith("https://") and config.get("token"):
+            return dict(base="https_not_supported")
+        if config.get("token") and config.get("address") and (
+            {"address", "token"} & set(updates)
+        ):
+            nuki = NukiInterface(
+                self.hass,
+                bridge=config["address"],
+                token=config["token"],
+                use_hashed=entry.options.get("use_hashed", False),
+            )
+            try:
+                info = await nuki.bridge_info()
+            except Exception as err:
+                _LOGGER.warning(f"Bridge check at the new address failed: {_mask_token(str(err))}")
+                return dict(base="invalid_bridge_token")
+            ids = info.get("ids", {})
+            if not is_same_bridge(self._known_bridge_ids(entry), ids.get("hardwareId")):
+                return dict(base="different_bridge")
+        if config.get("web_token") and "web_token" in updates:
+            nuki = NukiInterface(self.hass, web_token=config["web_token"])
+            try:
+                await nuki.web_list()
+            except Exception as err:
+                _LOGGER.warning(f"Web API check with the new token failed: {type(err).__name__}")
+                return dict(base="invalid_web_token")
+        return None
+
+    def _known_bridge_ids(self, entry) -> set:
+        """Hardware ids of the bridge device(s) this entry has registered.
+
+        A Software Bridge reports no hardware id (its device is registered with
+        None): nothing to compare then.
+        """
+        ids = set()
+        for device in dr.async_entries_for_config_entry(dr.async_get(self.hass), entry.entry_id):
+            if "Bridge" in (device.model or ""):
+                ids.update(
+                    value for domain, value in device.identifiers
+                    if domain == DOMAIN and value not in (None, "None")
+                )
+        return ids
 
     @staticmethod
     @callback

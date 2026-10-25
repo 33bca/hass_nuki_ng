@@ -17,7 +17,9 @@ async def async_setup_entry(
     async_add_entities
 ):
     coordinator = entry.runtime_data
-    known_devices = set()
+    # (device, kind) pairs already added. Per kind, not per device: the Nuki Web
+    # ones appear on a later poll when Nuki Web was down at setup.
+    known = set()
     auth_entities = {}
 
     @callback
@@ -47,19 +49,22 @@ async def async_setup_entry(
                     auth_entities[(dev_id, auth_id)] = entity
                     new.append(entity)
 
-            # Device-level switches — added once per new device
-            if dev_id not in known_devices:
-                known_devices.add(dev_id)
-                if coordinator.info_field(dev_id, None, "advancedConfig", "autoLock") is not None:
-                    new.append(LockAutoLock(coordinator, dev_id))
-                if coordinator.info_field(dev_id, None, "config", "buttonEnabled") is not None:
-                    new.append(LockButtonEnabled(coordinator, dev_id))
-                if coordinator.info_field(dev_id, -1, "openerAdvancedConfig", "doorbellSuppression") >= 0:
-                    new.append(OpenerRingSuppression(coordinator, dev_id))
-                    new.append(OpenerRingSuppressionRTO(coordinator, dev_id))
-                    new.append(OpenerRingSuppressionCM(coordinator, dev_id))
-                if coordinator.is_opener(dev_id):
-                    new.append(OpenerContinuousMode(coordinator, dev_id))
+            # Device-level switches, each added once, as soon as its data is there
+            for kind, present, classes in (
+                ("auto_lock",
+                 coordinator.info_field(dev_id, None, "advancedConfig", "autoLock") is not None,
+                 (LockAutoLock,)),
+                ("button_enabled",
+                 coordinator.info_field(dev_id, None, "config", "buttonEnabled") is not None,
+                 (LockButtonEnabled,)),
+                ("ring_suppression",
+                 coordinator.info_field(dev_id, -1, "openerAdvancedConfig", "doorbellSuppression") >= 0,
+                 (OpenerRingSuppression, OpenerRingSuppressionRTO, OpenerRingSuppressionCM)),
+                ("continuous_mode", coordinator.is_opener(dev_id), (OpenerContinuousMode,)),
+            ):
+                if present and (dev_id, kind) not in known:
+                    known.add((dev_id, kind))
+                    new.extend(cls(coordinator, dev_id) for cls in classes)
         if new:
             async_add_entities(new)
 
