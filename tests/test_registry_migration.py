@@ -225,19 +225,38 @@ class TestWebDeviceMerge:
         assert (m.source_device_id, m.target_device_id) == ("web", "lock")
         assert m.move_entity_ids == ("switch.agency_8194", "switch.keypad_27191")
 
-    def test_entities_keep_the_area_they_had(self):
-        """No own area: they showed the Web device's area; pin it so nothing moves."""
-        entities = {"switch.keypad_27191": EntityRow("switch.keypad_27191", area_id="hall")}
-        m = web_plan(self._registry(), entities).merges[0]
-        assert m.keep_area == (("switch.agency_8194", "znowhere"),)
+    def test_web_device_labels_go_to_the_lock_device(self):
+        devices = self._registry()
+        devices[0] = DeviceRow(**{**devices[0].__dict__, "labels": frozenset({"a"})})
+        devices[1] = DeviceRow(**{**devices[1].__dict__, "labels": frozenset({"a", "b"})})
+        assert web_plan(devices, {}).merges[0].add_labels == frozenset({"b"})
 
-    def test_same_area_needs_no_pin(self):
-        m = web_plan(self._registry(web_area="casa", lock_area="casa"), {}).merges[0]
-        assert m.keep_area == ()
+    def test_empty_web_device_is_still_removed(self):
+        devices = self._registry()
+        devices[1] = DeviceRow("web", ids((DOMAIN, WEB)), via_device_id="lock")
+        m = web_plan(devices, {}).merges[0]
+        assert (m.source_device_id, m.move_entity_ids) == ("web", ())
 
-    def test_web_device_without_area_pins_nothing(self):
-        m = web_plan(self._registry(web_area=None), {}).merges[0]
-        assert m.keep_area == ()
+    def test_device_with_both_identifiers_drops_the_web_one(self):
+        devices = [DeviceRow("lock", ids((DOMAIN, LOCK_ID), (DOMAIN, WEB)), entity_ids=("switch.a",))]
+        got = web_plan(devices, {})
+        assert got.merges == ()
+        assert got.renames[0].new_identifiers == ids((DOMAIN, LOCK_ID))
+
+    def test_after_the_merge_nothing_is_left(self):
+        devices = self._registry()
+        m = web_plan(devices, {}).merges[0]
+        lock = devices[0]
+        after = [
+            DeviceRow("lock", lock.identifiers, area_id=lock.area_id,
+                      entity_ids=lock.entity_ids + m.move_entity_ids),
+            devices[2],
+        ]
+        assert web_plan(after, {}).is_empty
+
+    def test_both_disabled_entity_enabled_follows_the_device(self):
+        m = web_plan(self._registry(web_disabled=True, lock_disabled=True), {}).merges[0]
+        assert m.disable_by_device == ("switch.agency_8194", "switch.keypad_27191")
 
     def test_both_disabled_keeps_entities_as_they_are(self):
         """Casa's lock inside the GB entry: both devices disabled by the user."""
@@ -299,3 +318,73 @@ class TestWebDeviceMerge:
         rename = plan(devices).renames[0]
         after = [devices[0], DeviceRow("web", rename.new_identifiers, entity_ids=("switch.a",))]
         assert web_plan(after, {}).merges[0].target_device_id == "lock"
+
+
+class TestApplyWebPlan:
+    """`_apply_web_plan` against fake registries: order and arguments."""
+
+    def _fake_ha(self, monkeypatch, fail=()):
+        import enum
+        import sys
+        import types
+
+        calls = []
+
+        class Disabler(enum.StrEnum):
+            DEVICE = "device"
+            USER = "user"
+
+        class EntityReg:
+            def async_update_entity(self, entity_id, **changes):
+                if entity_id in fail:
+                    raise ValueError("nope")
+                calls.append(("update", entity_id, changes))
+
+        class Device:
+            labels = {"a"}
+
+        class DeviceReg:
+            def async_get(self, device_id):
+                return Device()
+
+            def async_update_device(self, device_id, **changes):
+                calls.append(("device", device_id, changes))
+
+            def async_remove_device(self, device_id):
+                calls.append(("remove", device_id))
+
+        er = types.SimpleNamespace(async_get=lambda hass: EntityReg(), RegistryEntryDisabler=Disabler)
+        dr = types.SimpleNamespace(async_get=lambda hass: DeviceReg())
+        helpers = types.ModuleType("homeassistant.helpers")
+        helpers.entity_registry, helpers.device_registry = er, dr
+        ha = types.ModuleType("homeassistant")
+        ha.helpers = helpers
+        monkeypatch.setitem(sys.modules, "homeassistant", ha)
+        monkeypatch.setitem(sys.modules, "homeassistant.helpers", helpers)
+        monkeypatch.setitem(sys.modules, "homeassistant.helpers.entity_registry", er)
+        monkeypatch.setitem(sys.modules, "homeassistant.helpers.device_registry", dr)
+        return calls, Disabler
+
+    def _plan(self):
+        return migration.WebMergePlan(merges=(migration.WebMerge(
+            source_device_id="web", target_device_id="lock",
+            move_entity_ids=("switch.a", "switch.b"),
+            add_labels=frozenset({"b"}), source_name="Nuki Web X",
+            disable_by_user=("switch.b",),
+        ),))
+
+    def test_entities_move_before_the_device_is_removed(self, monkeypatch):
+        calls, Disabler = self._fake_ha(monkeypatch)
+        migration._apply_web_plan(None, self._plan())
+        assert calls[0] == ("update", "switch.a", {"device_id": "lock"})
+        assert calls[1] == ("update", "switch.b", {"device_id": "lock", "disabled_by": Disabler.USER})
+        assert isinstance(calls[1][2]["disabled_by"], Disabler)
+        assert calls[2] == ("device", "lock", {"labels": {"a", "b"}})
+        assert calls[-1] == ("remove", "web")
+        assert "area_id" not in calls[0][2]
+
+    def test_failed_move_keeps_the_web_device(self, monkeypatch):
+        calls, _ = self._fake_ha(monkeypatch, fail=("switch.a",))
+        migration._apply_web_plan(None, self._plan())
+        assert ("remove", "web") not in calls
+        assert ("update", "switch.b", calls[0][2]) == calls[0]

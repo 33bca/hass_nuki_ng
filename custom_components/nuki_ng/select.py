@@ -75,7 +75,6 @@ class NukiButtonPressActionSelect(NukiEntity, SelectEntity):
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_icon = "mdi:gesture-tap-button"
 
-
     @property
     def current_option(self) -> str | None:
         value = self.coordinator.info_field(

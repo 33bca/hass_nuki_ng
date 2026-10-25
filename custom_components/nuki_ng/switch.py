@@ -5,7 +5,6 @@ from homeassistant.core import callback
 import logging
 
 from . import NukiEntity, NukiOpenerRingSuppressionEntity
-from .constants import DOMAIN
 from .planning import AUTH_ICONS, auth_attributes, auth_object_id, removed_auths
 from .states import LockModes
 

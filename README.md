@@ -7,7 +7,7 @@
 > Requires Home Assistant 2026.10 or newer.
 
 ### 0.6.3
-* One device per lock/opener: the authorization switches move from the separate "Nuki Web <lock>" device onto the lock's own device, and the empty Web API device is removed (registry migration at start; entity ids, names set in HA, labels, categories and enabled/disabled state are kept; a switch that had no area of its own keeps the area it showed before)
+* One device per lock/opener: the authorization switches move from the separate "Nuki Web <lock>" device onto the lock's own device, and the empty Web API device is removed (registry migration at start; entity ids, names set in HA, entity labels and categories and enabled/disabled state are kept, the Web API device's labels are added to the lock device; switches without an area of their own now show the lock's area). Automations that used the Web API device by its device id must use the lock device; the log names the removed device
 * Every entity uses Home Assistant entity naming: the name shown is "<device name> <entity name>", so renaming the device in HA renames all its entities (a name set on an entity in HA still wins). The lock entity shows just the device name; the device's default name is the name from the Nuki app (no extra "Nuki" prefix)
 
 ### 0.6.2

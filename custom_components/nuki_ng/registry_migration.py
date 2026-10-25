@@ -57,6 +57,8 @@ class DeviceRow:
     entity_ids: tuple[str, ...] = ()
     area_id: str | None = None
     disabled: bool = False
+    labels: frozenset[str] = frozenset()
+    name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -162,8 +164,9 @@ WEB_PREFIX = "web_"
 class WebMerge:
     """Move the Web API device's entities onto the lock device, then drop it.
 
-    `keep_area` pins an entity to the Web API device's area when it had none of
-    its own and the lock device sits elsewhere, so no entity changes area.
+    Entities without an area of their own then show the lock device's area
+    (pinning the old one would make HA 2026.10 name them after the area).
+    Device labels of the Web API device are added to the lock device.
     `disable_by_device` / `disable_by_user` keep each entity's enabled state
     consistent with its new device (Home Assistant's own rules on device
     disable/enable).
@@ -172,7 +175,8 @@ class WebMerge:
     source_device_id: str
     target_device_id: str
     move_entity_ids: tuple[str, ...] = ()
-    keep_area: tuple[tuple[str, str], ...] = ()
+    add_labels: frozenset[str] = frozenset()
+    source_name: str | None = None
     disable_by_device: tuple[str, ...] = ()
     disable_by_user: tuple[str, ...] = ()
 
@@ -245,11 +249,9 @@ def plan_web_device_merge(
             )
             continue
 
-        keep_area, by_device, by_user = [], [], []
+        by_device, by_user = [], []
         for entity_id in device.entity_ids:
             row = entities.get(entity_id, EntityRow(entity_id))
-            if row.area_id is None and device.area_id and device.area_id != target.area_id:
-                keep_area.append((entity_id, device.area_id))
             if target.disabled and row.disabled_by is None:
                 by_device.append(entity_id)
             elif not target.disabled and row.disabled_by == "device":
@@ -260,7 +262,8 @@ def plan_web_device_merge(
                 source_device_id=device.device_id,
                 target_device_id=target.device_id,
                 move_entity_ids=tuple(device.entity_ids),
-                keep_area=tuple(keep_area),
+                add_labels=frozenset(device.labels - target.labels),
+                source_name=device.name,
                 disable_by_device=tuple(by_device),
                 disable_by_user=tuple(by_user),
             )
@@ -291,14 +294,16 @@ def _rows(hass, entry):
                 entity_ids=tuple(e.entity_id for e in ents),
                 area_id=device.area_id,
                 disabled=device.disabled_by is not None,
+                labels=frozenset(device.labels),
+                name=device.name_by_user or device.name,
             )
         )
     return rows, entities
 
 
-async def async_migrate_device_registry(hass, entry):
+async def async_migrate_device_registry(hass, entry) -> tuple[MigrationPlan, WebMergePlan]:
     """Bring the registry for `entry` onto today's scheme: legacy identifier
-    domains first, then one device per lock."""
+    domains first, then one device per lock. Returns both plans (empty once done)."""
     rows, _ = _rows(hass, entry)
     plan = plan_identifier_migration(rows)
     if not plan.is_empty:
@@ -323,16 +328,36 @@ def _apply_web_plan(hass, plan: WebMergePlan) -> None:
             merge.source_device_id,
             merge.target_device_id,
         )
-        areas = dict(merge.keep_area)
+        moved = True
         for entity_id in merge.move_entity_ids:
             changes = {"device_id": merge.target_device_id}
-            if entity_id in areas:
-                changes["area_id"] = areas[entity_id]
             if entity_id in merge.disable_by_device:
                 changes["disabled_by"] = er.RegistryEntryDisabler.DEVICE
             elif entity_id in merge.disable_by_user:
                 changes["disabled_by"] = er.RegistryEntryDisabler.USER
-            entity_reg.async_update_entity(entity_id, **changes)
+            try:
+                entity_reg.async_update_entity(entity_id, **changes)
+            except ValueError as err:
+                moved = False
+                _LOGGER.error("Could not move %s to the lock device: %s", entity_id, err)
+        if merge.add_labels:
+            target = device_reg.async_get(merge.target_device_id)
+            device_reg.async_update_device(
+                merge.target_device_id, labels=set(target.labels) | set(merge.add_labels)
+            )
+        if not moved:
+            # Keep the Web API device (and so the entity) until the next start.
+            continue
+        # Automations that target this device by its device id (device triggers,
+        # conditions, actions) need the lock device instead.
+        _LOGGER.warning(
+            "Removed the Nuki Web device %s (%s): its entities are now on the lock "
+            "device %s. Automations or scripts that use the old device id must be "
+            "pointed at the lock device",
+            merge.source_device_id,
+            merge.source_name,
+            merge.target_device_id,
+        )
         device_reg.async_remove_device(merge.source_device_id)
     for rename in plan.renames:
         _LOGGER.info("Nuki Web device %s becomes the lock device", rename.device_id)
