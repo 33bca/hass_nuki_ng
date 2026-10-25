@@ -87,3 +87,29 @@ def removed_auths(known: set, device_auths: dict, fetched_ok: dict) -> set:
         if auth_id not in current:
             gone.add((dev_id, auth_id))
     return gone
+
+
+LOCK_ACTIONS = frozenset({"unlock", "lock", "open", "lock_n_go", "lock_n_go_open"})
+OPENER_ACTIONS = frozenset({
+    "activate_rto",
+    "deactivate_rto",
+    "electric_strike_actuation",
+    "activate_continuous_mode",
+    "deactivate_continuous_mode",
+})
+
+
+def action_mismatches(action: str, devices: dict) -> list:
+    """Device ids the action must NOT be sent to.
+
+    `devices` maps device id -> "lock" | "opener" | other. Opener actions share
+    the numeric codes of lock actions (activate_rto = 1 = unlock), so sending
+    one to the wrong kind of device does something else entirely.
+    """
+    if action in LOCK_ACTIONS:
+        wanted = "lock"
+    elif action in OPENER_ACTIONS:
+        wanted = "opener"
+    else:
+        return sorted(devices, key=str)
+    return sorted((d for d, kind in devices.items() if kind != wanted), key=str)

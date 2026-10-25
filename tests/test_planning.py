@@ -83,3 +83,21 @@ class TestRemovedAuths:
 
     def test_unknown_device_is_skipped(self):
         assert planning.removed_auths({(2, "a")}, {1: {"x": {}}}, {1: True}) == set()
+
+
+class TestActionMismatches:
+    def test_lock_action_on_lock(self):
+        assert planning.action_mismatches("unlock", {1: "lock"}) == []
+
+    def test_opener_action_never_reaches_a_lock(self):
+        """activate_rto shares code 1 with unlock."""
+        assert planning.action_mismatches("activate_rto", {1: "lock", 2: "opener"}) == [1]
+
+    def test_lock_action_never_reaches_an_opener(self):
+        assert planning.action_mismatches("open", {2: "opener"}) == [2]
+
+    def test_unknown_action_matches_nothing(self):
+        assert planning.action_mismatches("bogus", {1: "lock"}) == [1]
+
+    def test_unknown_device_kind_is_refused(self):
+        assert planning.action_mismatches("lock", {3: "other"}) == [3]

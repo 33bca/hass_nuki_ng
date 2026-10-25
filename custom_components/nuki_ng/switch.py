@@ -35,6 +35,9 @@ async def async_setup_entry(
         )
         for key in gone:
             entity = auth_entities.pop(key)
+            if entity.hass is None:
+                # Disabled in the registry (never added) or not added yet
+                continue
             _LOGGER.info(f"Authorization {key[1]} no longer exists in Nuki, removing {entity.entity_id}")
             hass.async_create_task(entity.async_remove())
         for dev_id in devices:

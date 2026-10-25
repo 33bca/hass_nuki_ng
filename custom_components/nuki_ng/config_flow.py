@@ -66,7 +66,7 @@ class NukiNGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input):
         errors = None
-        _LOGGER.debug(f"Input: {user_input}")
+        _LOGGER.debug(f"Input keys: {sorted(user_input or {})}")
         if user_input is None:
             nuki = NukiInterface(self.hass)
             bridge_address = await nuki.discover_bridge()

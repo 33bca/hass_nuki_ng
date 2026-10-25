@@ -160,7 +160,7 @@ class NukiInterface:
         callbacks = await self.async_json(
             lambda r: r.get(self.bridge_url("/callback/list"), timeout=BRIDGE_TIMEOUT)
         )
-        _LOGGER.debug(f"bridge_remove_callback: {callbacks}, {callback}")
+        _LOGGER.debug(f"bridge_remove_callback: {len(callbacks.get('callbacks', []))} callbacks")
         callbacks_list = callbacks.get("callbacks", [])
         for item in callbacks_list:
             if item["url"] == callback:
@@ -519,7 +519,7 @@ class NukiCoordinator(DataUpdateCoordinator):
                     item["openerAdvancedConfig"] = web_list.get(web_id, {}).get("openerAdvancedConfig")
                 result["devices"][dev_id] = item
                 result["devices"][dev_id]["bridge_info"] = info_mapping.get(dev_id)
-            _LOGGER.debug(f"_update: {json.dumps(result)}")
+            # No dump of `result`: the Web API auth entries hold keypad PINs.
             return result
         except Exception as err:
             _LOGGER.exception(f"Failed to get latest data: {err}")
@@ -543,7 +543,7 @@ class NukiCoordinator(DataUpdateCoordinator):
         try:
             if self.api.can_bridge():
                 result = await self.api.bridge_remove_callback(self.bridge_hook)
-                _LOGGER.debug(f"unload: {result} {self.bridge_hook}")
+                _LOGGER.debug(f"unload: callback removed: {result}")
         except Exception:
             _LOGGER.exception(f"Failed to remove callback")
 
@@ -604,7 +604,7 @@ class NukiCoordinator(DataUpdateCoordinator):
         return self.device_data(dev_id).get("webId", dev_id)
 
     def info_data(self):
-        return self.data.get("info", {})
+        return self.data.get("bridge_info") or {}
 
     def is_lock(self, dev_id: str) -> bool:
         return self.device_data(dev_id).get("deviceType") in LOCK_DEVICE_TYPES
@@ -635,7 +635,9 @@ class NukiCoordinator(DataUpdateCoordinator):
         self.async_set_updated_data(data)
         # Read the entry back from the Web API shortly after the write, so the
         # switch reflects what the cloud really holds (not only our local copy).
-        async_call_later(self.hass, AUTH_READBACK_DELAY, self._readback)
+        self.entry.async_on_unload(
+            async_call_later(self.hass, AUTH_READBACK_DELAY, self._readback)
+        )
 
     async def _readback(self, _now=None):
         await self.async_request_refresh()

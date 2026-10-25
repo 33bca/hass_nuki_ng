@@ -5,7 +5,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import service
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from homeassistant.helpers import device_registry as dr
@@ -13,6 +13,7 @@ from homeassistant.helpers import device_registry as dr
 from .nuki import NukiCoordinator
 from .constants import DOMAIN, PLATFORMS
 from .registry_migration import async_migrate_device_registry
+from .planning import action_mismatches
 
 
 def via_device_id(entity, identifier: tuple[str, str]) -> str | None:
@@ -100,26 +101,32 @@ async def async_unload_entry(hass: HomeAssistant, entry):
     return True
 
 
-def _as_list(value) -> list:
-    if value is None:
-        return []
-    if isinstance(value, (list, tuple, set)):
-        return list(value)
-    return [value]
+def _loaded_coordinators(hass: HomeAssistant, entry_ids) -> list:
+    coordinators = []
+    for entry_id in entry_ids:
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry and entry.domain == DOMAIN and entry.state is ConfigEntryState.LOADED:
+            coordinators.append(entry.runtime_data)
+    return coordinators
 
 
 def _targeted_nuki_ids(hass: HomeAssistant, call) -> set[str]:
-    """Nuki device ids (lock/opener) named by the call's device and entity targets.
+    """Nuki device ids (lock/opener) named by the call's target.
 
-    The Web API device ("web_<id>") counts as its lock. The bridge and other
-    devices map to nothing.
+    Resolves devices, entities, areas, floors and labels the way Home Assistant
+    does. The Web API device ("web_<id>") counts as its lock; the bridge and
+    other devices map to nothing.
     """
     from homeassistant.helpers import entity_registry as er
+    from homeassistant.helpers import target as target_helpers
 
+    referenced = target_helpers.async_extract_referenced_entity_ids(
+        hass, target_helpers.TargetSelection(call.data)
+    )
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
-    device_ids = set(_as_list(call.data.get("device_id")))
-    for entity_id in _as_list(call.data.get("entity_id")):
+    device_ids = set(referenced.referenced_devices)
+    for entity_id in referenced.referenced | referenced.indirectly_referenced:
         if (ent := ent_reg.async_get(entity_id)) and ent.device_id:
             device_ids.add(ent.device_id)
     result: set[str] = set()
@@ -136,30 +143,48 @@ def _targeted_nuki_ids(hass: HomeAssistant, call) -> set[str]:
 
 def _register_coordinator_service(hass: HomeAssistant, name: str, handler):
     async def handler_(call):
-        # HA 2026.10 removed the `hass` argument of async_extract_config_entry_ids.
-        for entry_id in await service.async_extract_config_entry_ids(call):
-            if entry := hass.config_entries.async_get_entry(entry_id):
-                if entry.domain == DOMAIN and entry.runtime_data is not None:
-                    _LOGGER.debug(f"service call: {name} for {entry.domain}")
-                    await handler(entry.runtime_data, call)
+        for coordinator in _loaded_coordinators(
+            hass, await service.async_extract_config_entry_ids(call)
+        ):
+            _LOGGER.debug(f"service call: {name}")
+            await handler(coordinator, call)
 
     hass.services.async_register(DOMAIN, name, handler_)
 
 
-async def _execute_action(hass: HomeAssistant, coordinator, call):
+async def _execute_action(call):
     """Run the action on the targeted locks/openers only, never on the whole entry.
 
     Upstream sent it to every device of the entry, so e.g. `deactivate_rto`
-    aimed at an Opener reached a Smart Lock as action 2 ("lock").
+    aimed at an Opener reached a Smart Lock as action 2 ("lock"). Everything is
+    checked across all loaded entries before anything is sent.
     """
+    hass = call.hass
+    action = call.data.get("action")
     targeted = _targeted_nuki_ids(hass, call)
-    known = {str(dev_id): dev_id for dev_id in coordinator.data.get("devices", {})}
-    selected = [known[t] for t in targeted if t in known]
+    selected = []  # (coordinator, device id)
+    kinds = {}
+    for coordinator in _loaded_coordinators(
+        hass, await service.async_extract_config_entry_ids(call)
+    ):
+        for dev_id in coordinator.data.get("devices", {}):
+            if str(dev_id) in targeted:
+                selected.append((coordinator, dev_id))
+                kinds[dev_id] = (
+                    "lock" if coordinator.is_lock(dev_id)
+                    else "opener" if coordinator.is_opener(dev_id)
+                    else "other"
+                )
     if not selected:
         raise ServiceValidationError(
             "execute_action needs a Nuki lock or opener device (or one of its entities) as target"
         )
-    await coordinator.action_for_devices(call.data.get("action"), selected)
+    if wrong := action_mismatches(action, kinds):
+        raise ServiceValidationError(
+            f"Action {action} does not apply to device(s) {', '.join(map(str, wrong))}; nothing was sent"
+        )
+    for coordinator, dev_id in selected:
+        await coordinator.action_for_devices(action, [dev_id])
 
 
 async def async_setup(hass: HomeAssistant, config) -> bool:
@@ -178,11 +203,7 @@ async def async_setup(hass: HomeAssistant, config) -> bool:
         "bridge_delete_callback",
         lambda coord, call: coord.do_delete_callback(call.data.get("callback")),
     )
-    _register_coordinator_service(
-        hass,
-        "execute_action",
-        lambda coord, call: _execute_action(hass, coord, call),
-    )
+    hass.services.async_register(DOMAIN, "execute_action", _execute_action)
 
     return True
 
