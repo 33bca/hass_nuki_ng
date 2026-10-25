@@ -1,12 +1,14 @@
 {
   "domain": "nuki_ng",
   "name": "Nuki Lock",
-  "documentation": "https://github.com/kvj/hass_nuki_ng",
-  "issue_tracker": "https://github.com/kvj/hass_nuki_ng/issues",
-  "dependencies": [],
-  "codeowners": ["@kvj"],
-  "requirements": [],
-  "iot_class": "local_polling",
+  "codeowners": [
+    "@cmatte"
+  ],
   "config_flow": true,
-  "version": "0.5.5.1"
+  "dependencies": [],
+  "documentation": "https://github.com/cmatte/hass_nuki_ng",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/cmatte/hass_nuki_ng/issues",
+  "requirements": [],
+  "version": "0.6.0"
 }

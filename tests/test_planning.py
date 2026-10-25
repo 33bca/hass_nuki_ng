@@ -37,7 +37,7 @@ class TestCallbackPlan:
 class TestAuthAttributes:
     AUTH = {
         "id": "abc",
-        "authId": 8199,
+        "authId": 4242,
         "type": 13,
         "name": "Guest",
         "enabled": True,
@@ -56,7 +56,7 @@ class TestAuthAttributes:
     def test_identity_attributes(self):
         attrs = planning.auth_attributes(self.AUTH)
         assert attrs["Nuki name"] == "Guest"
-        assert attrs["Auth ID"] == 8199
+        assert attrs["Auth ID"] == 4242
         assert attrs["Type"] == "keypad code"
         assert attrs["Fingerprints"] == 1
 
@@ -64,7 +64,7 @@ class TestAuthAttributes:
         assert planning.auth_attributes({"type": 99})["Type"] == 99
 
     def test_object_id_ends_with_auth_id(self):
-        assert planning.auth_object_id("Door", self.AUTH, "abc").endswith(" 8199")
+        assert planning.auth_object_id("Door", self.AUTH, "abc").endswith(" 4242")
 
     def test_object_id_falls_back_to_entry_id(self):
         assert planning.auth_object_id("Door", {"name": "X"}, "abc").endswith(" abc")

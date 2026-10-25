@@ -1,0 +1,54 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          ignore: brands
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pytest
+      - run: python -m pytest -q tests
+
+  import-ha:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install "homeassistant==2026.10.4"
+      - name: Import every module against Home Assistant
+        run: |
+          python - <<'PY'
+          import importlib, pathlib
+          for f in sorted(pathlib.Path("custom_components/nuki_ng").glob("*.py")):
+              name = "custom_components.nuki_ng" + ("" if f.stem == "__init__" else "." + f.stem)
+              importlib.import_module(name)
+              print("ok", name)
+          PY

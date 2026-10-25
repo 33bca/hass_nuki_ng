@@ -1,6 +1,5 @@
 {
     "name": "Nuki Lock",
-    "domains": ["lock", "sensor"],
-    "homeassistant": "2021.12.1",
+    "homeassistant": "2026.10.0",
     "render_readme": true
 }

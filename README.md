@@ -1,5 +1,30 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/custom-components/hacs)
 
+
+> **Maintained fork of [kvj/hass_nuki_ng](https://github.com/kvj/hass_nuki_ng).**
+> Same integration domain (`nuki_ng`), so existing installs, devices and entity ids carry over.
+> It gathers the open upstream pull requests and fork fixes, plus fixes nobody had shipped yet.
+> Requires Home Assistant 2026.10 or newer.
+
+### Changes in 0.6.0 (vs upstream 0.5.5)
+
+Merged from upstream PRs and forks (authorship kept in the git history):
+* Device registry migration off the legacy `id`/`web_id` identifiers, device removal from the UI (PR #239, with tests)
+* `via_device_id` instead of `via_device`, which HA removes in 2027.8 (Eric Guichard)
+* Correct local state after toggling an authorization, Web API sync button, new locks/authorizations picked up without a reload, AuthEntry device fix (Ferdinand Berger)
+* Single/double button press action selects (PR #242)
+* Options flow: bridge token, hashed bridge token (opt-in), poll interval; tokens masked in errors (umstandsheini)
+
+New in this fork:
+* Services work again on HA 2026.10 (upstream #240)
+* `execute_action` acts only on the targeted lock/opener; upstream sent it to every device of the entry, so an Opener action could lock a Smart Lock (upstream #237)
+* The bridge keeps exactly one callback slot for this integration, checked every 5 minutes instead of every poll (upstream #245)
+* Authorization switches: read back from the Web API 5 s after a change; names no longer change when the entry is renamed in the Nuki app; new switches carry the Nuki auth id in their entity id; attributes show the Nuki name, auth id, type and fingerprint count (never the PIN); switches of entries deleted in Nuki are released, so they can be removed
+* Request errors never include the bridge token
+
+Install: HACS → Custom repositories → `https://github.com/cmatte/hass_nuki_ng` (Integration). Replace the kvj repository if you had it.
+
+
 ## Better support for Nuki devices in Home Assistant
 
 ### Features:
@@ -21,11 +46,11 @@
 
 ### Installation:
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=kvj&repository=hass_nuki_ng&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=cmatte&repository=hass_nuki_ng&category=integration)
 
 * Go to HACS -> Integrations
 * Click the three dots on the top right and select `Custom Repositories`
-* Enter `https://github.com/kvj/hass_nuki_ng` as repository, select the category `Integration` and click Add
+* Enter `https://github.com/cmatte/hass_nuki_ng` as repository, select the category `Integration` and click Add
 * A new custom integration shows up for installation (Nuki Lock) - install it
 * Restart Home Assistant
 
