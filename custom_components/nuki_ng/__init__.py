@@ -4,6 +4,7 @@ import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import service
+import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -36,6 +37,8 @@ OPENER_TYPE = 1
 LOCK_TYPE = 0
 
 _LOGGER = logging.getLogger(__name__)
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 # ------------------------------------------------------
