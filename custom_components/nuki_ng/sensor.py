@@ -37,9 +37,12 @@ async def async_setup_entry(hass, entry, async_add_entities):
                 if coordinator.device_supports(dev_id, "doorsensorStateName"):
                     new.append(DoorSensorState(coordinator, dev_id))
                     new.append(DoorSecurityState(coordinator, dev_id))
-                if coordinator.info_field(dev_id, None, "last_log"):
+                # Read from the Nuki Web activity log: added for every device
+                # when the Web API is configured. Upstream added them only if
+                # the log already had a matching entry at the first poll, so
+                # some locks never got them.
+                if coordinator.api.can_web():
                     new.append(LastLog(coordinator, dev_id))
-                if coordinator.info_field(dev_id, None, "last_unlock_log"):
                     new.append(LastUnlockUser(coordinator, dev_id))
         if new:
             async_add_entities(new)
