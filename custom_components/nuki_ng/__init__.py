@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import service
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.config_entries import ConfigEntry
@@ -99,41 +100,88 @@ async def async_unload_entry(hass: HomeAssistant, entry):
     return True
 
 
+def _as_list(value) -> list:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return [value]
+
+
+def _targeted_nuki_ids(hass: HomeAssistant, call) -> set[str]:
+    """Nuki device ids (lock/opener) named by the call's device and entity targets.
+
+    The Web API device ("web_<id>") counts as its lock. The bridge and other
+    devices map to nothing.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+    device_ids = set(_as_list(call.data.get("device_id")))
+    for entity_id in _as_list(call.data.get("entity_id")):
+        if (ent := ent_reg.async_get(entity_id)) and ent.device_id:
+            device_ids.add(ent.device_id)
+    result: set[str] = set()
+    for device_id in device_ids:
+        if not (device := dev_reg.async_get(device_id)):
+            continue
+        for domain, value in device.identifiers:
+            if domain != DOMAIN:
+                continue
+            value = str(value)
+            result.add(value[len("web_"):] if value.startswith("web_") else value)
+    return result
+
+
 def _register_coordinator_service(hass: HomeAssistant, name: str, handler):
     async def handler_(call):
-        for entry_id in await service.async_extract_config_entry_ids(hass, call):
+        # HA 2026.10 removed the `hass` argument of async_extract_config_entry_ids.
+        for entry_id in await service.async_extract_config_entry_ids(call):
             if entry := hass.config_entries.async_get_entry(entry_id):
-                if entry.domain == DOMAIN:
+                if entry.domain == DOMAIN and entry.runtime_data is not None:
                     _LOGGER.debug(f"service call: {name} for {entry.domain}")
-                    handler(entry.runtime_data, call.data)
+                    await handler(entry.runtime_data, call)
 
     hass.services.async_register(DOMAIN, name, handler_)
+
+
+async def _execute_action(hass: HomeAssistant, coordinator, call):
+    """Run the action on the targeted locks/openers only, never on the whole entry.
+
+    Upstream sent it to every device of the entry, so e.g. `deactivate_rto`
+    aimed at an Opener reached a Smart Lock as action 2 ("lock").
+    """
+    targeted = _targeted_nuki_ids(hass, call)
+    known = {str(dev_id): dev_id for dev_id in coordinator.data.get("devices", {})}
+    selected = [known[t] for t in targeted if t in known]
+    if not selected:
+        raise ServiceValidationError(
+            "execute_action needs a Nuki lock or opener device (or one of its entities) as target"
+        )
+    await coordinator.action_for_devices(call.data.get("action"), selected)
 
 
 async def async_setup(hass: HomeAssistant, config) -> bool:
     _register_coordinator_service(
         hass,
         "bridge_reboot",
-        lambda coord, _: hass.async_create_task(coord.do_reboot()),
+        lambda coord, _: coord.do_reboot(),
     )
     _register_coordinator_service(
         hass,
         "bridge_fwupdate",
-        lambda coord, _: hass.async_create_task(coord.do_fwupdate()),
+        lambda coord, _: coord.do_fwupdate(),
     )
     _register_coordinator_service(
         hass,
         "bridge_delete_callback",
-        lambda coord, data: hass.async_create_task(
-            coord.do_delete_callback(data.get("callback"))
-        ),
+        lambda coord, call: coord.do_delete_callback(call.data.get("callback")),
     )
     _register_coordinator_service(
         hass,
         "execute_action",
-        lambda coord, data: hass.async_create_task(
-            coord.action_for_devices(data.get("action"))
-        ),
+        lambda coord, call: _execute_action(hass, coord, call),
     )
 
     return True

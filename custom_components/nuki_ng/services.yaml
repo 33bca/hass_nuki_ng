@@ -17,7 +17,7 @@ bridge_delete_callback:
     device:
       integration: nuki_ng
   fields:
-    command:
+    callback:
       name: Callback URL
       description: URL to delete
       required: true

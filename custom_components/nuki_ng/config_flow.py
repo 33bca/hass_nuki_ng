@@ -3,7 +3,7 @@ import homeassistant.helpers.config_validation as cv
 from homeassistant.core import callback
 from homeassistant.helpers.network import get_url
 from .constants import DOMAIN
-from .nuki import NukiInterface
+from .nuki import NukiInterface, _mask_token
 
 import logging
 import voluptuous as vol
@@ -134,7 +134,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 try:
                     await nuki.bridge_info()
                 except Exception as err:
-                    _LOGGER.warning(f"Bridge check with the new options failed: {err}")
+                    _LOGGER.warning(f"Bridge check with the new options failed: {_mask_token(str(err))}")
                     errors = dict(base="hashed_token_rejected" if user_input.get("use_hashed") else "invalid_bridge_token")
             if not errors:
                 return self.async_create_entry(title="", data=user_input)

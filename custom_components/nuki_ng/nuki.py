@@ -24,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 
 def _mask_token(url: str) -> str:
     """Keep the plain bridge token out of logs and error messages."""
-    return re.sub(r"([?&]token=)[^&]*", r"\1***", url)
+    return re.sub(r"([?&](?:token|hash)=)[^&]*", r"\1***", url)
 
 BRIDGE_DISCOVERY_API = "https://api.nuki.io/discover/bridges"
 BRIDGE_HOOK = "nuki_ng_bridge_hook"
@@ -45,7 +45,13 @@ class NukiInterface:
         self.use_hashed = use_hashed
 
     async def async_json(self, cb):
-        response = await self.hass.async_add_executor_job(lambda: cb(requests))
+        try:
+            response = await self.hass.async_add_executor_job(lambda: cb(requests))
+        except requests.RequestException as err:
+            # The message carries the request URL, which holds the plain bridge token.
+            raise HomeAssistantError(
+                f"Bridge request failed: {type(err).__name__}: {_mask_token(str(err))}"
+            ) from None
         if not response.ok:
             if response.status_code == 401 and self.use_hashed and self.bridge and self.bridge in response.request.url:
                 raise HomeAssistantError(
@@ -512,8 +518,8 @@ class NukiCoordinator(DataUpdateCoordinator):
         except Exception:
             _LOGGER.exception(f"Failed to remove callback")
 
-    async def action_for_devices(self, action: str):
-        for device_id in self.data.get("devices", {}):
+    async def action_for_devices(self, action: str, device_ids):
+        for device_id in device_ids:
             await self.action(device_id, action)
 
     async def action(self, dev_id: str, action: str):
