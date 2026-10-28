@@ -78,6 +78,10 @@ class Battery(NukiEntity, SensorEntity):
 
 
 class LockState(NukiEntity, SensorEntity):
+    _attr_translation_key = "state"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [state.translation_key for state in LockStates]
+
     def __init__(self, coordinator, device_id):
         super().__init__(coordinator, device_id)
         self.set_id("sensor", "state")
@@ -85,8 +89,13 @@ class LockState(NukiEntity, SensorEntity):
         self._attr_icon = "mdi:door"
 
     @property
-    def state(self):
-        return self.last_state.get("stateName")
+    def native_value(self):
+        state_name = self.last_state.get("stateName")
+        if state_name is None:
+            return None
+        if state_name == "unlocked (lock 'n' go)":
+            return LockStates.LOCK_N_GO.translation_key
+        return state_name.lower().replace(" ", "_")
 
     @property
     def entity_category(self):

@@ -54,6 +54,27 @@
   },
   "entity": {
     "sensor": {
+      "state": {
+        "name": "State",
+        "state": {
+          "uncalibrated": "Uncalibrated",
+          "locked": "Locked",
+          "unlocking": "Unlocking",
+          "unlocked": "Unlocked",
+          "locking": "Locking",
+          "unlatched": "Unlatched",
+          "lock_n_go": "Unlocked (Lock 'n' Go)",
+          "unlatching": "Unlatching",
+          "motor_blocked": "Motor blocked",
+          "undefined": "Undefined",
+          "untrained": "Untrained",
+          "online": "Online",
+          "ring_to_open_active": "Ring to open active",
+          "open": "Open",
+          "opening": "Opening",
+          "boot_run": "Boot run"
+        }
+      },
       "door_security_state": {
         "name": "Door Security State",
         "state": {

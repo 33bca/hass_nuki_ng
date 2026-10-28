@@ -40,6 +40,27 @@
     },
     "entity": {
       "sensor": {
+        "state": {
+          "name": "Status",
+          "state": {
+            "uncalibrated": "Nicht kalibriert",
+            "locked": "Verriegelt",
+            "unlocking": "Wird entriegelt",
+            "unlocked": "Entriegelt",
+            "locking": "Wird verriegelt",
+            "unlatched": "Falle zurückgezogen",
+            "lock_n_go": "Entriegelt (Lock 'n' Go)",
+            "unlatching": "Falle wird zurückgezogen",
+            "motor_blocked": "Motor blockiert",
+            "undefined": "Unbekannt",
+            "untrained": "Nicht eingerichtet",
+            "online": "Online",
+            "ring_to_open_active": "Klingeln zum Öffnen aktiv",
+            "open": "Offen",
+            "opening": "Wird geöffnet",
+            "boot_run": "Startvorgang"
+          }
+        },
         "door_security_state": {
           "name": "Tür-Sicherheitsstatus",
           "state": {
