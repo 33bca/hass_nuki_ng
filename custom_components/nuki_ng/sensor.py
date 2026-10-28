@@ -1,4 +1,4 @@
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.core import callback
 
@@ -135,6 +135,10 @@ class DoorSensorState(NukiEntity, SensorEntity):
 
 
 class DoorSecurityState(NukiEntity, SensorEntity):
+    _attr_translation_key = "door_security_state"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = [state.translation_key for state in DoorSecurityStates]
+
     def __init__(self, coordinator, device_id):
         super().__init__(coordinator, device_id)
         self.set_id("sensor", "door_security_state")
@@ -153,8 +157,8 @@ class DoorSecurityState(NukiEntity, SensorEntity):
         return "mdi:door-open"
 
     @property
-    def state(self):
-        return str(self.get_state())
+    def native_value(self):
+        return self.get_state().translation_key
 
     def get_state(self) -> DoorSecurityStates:
         lock_state = LockStates(self.last_state.get("state", LockStates.UNDEFINED.value))

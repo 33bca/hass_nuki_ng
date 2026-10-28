@@ -51,5 +51,17 @@
       "hashed_token_rejected": "The bridge rejected the hashed token. Hashed tokens need a correct bridge clock, which the bridge gets via the internet.",
       "invalid_bridge_token": "Error communicating with Nuki bridge"
     }
+  },
+  "entity": {
+    "sensor": {
+      "door_security_state": {
+        "name": "Door Security State",
+        "state": {
+          "closed_and_locked": "Closed & Locked",
+          "closed_and_unlocked": "Closed & Unlocked",
+          "open": "Open"
+        }
+      }
+    }
   }
 }

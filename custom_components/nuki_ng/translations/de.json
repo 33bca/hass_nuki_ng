@@ -37,6 +37,18 @@
         "hashed_token_rejected": "Die Bridge hat den gehashten Token abgelehnt. Dafür braucht sie eine korrekte Uhrzeit, die sie über das Internet bezieht.",
         "invalid_bridge_token": "Fehler in der Kommunikation mit der Nuki Bridge"
       }
+    },
+    "entity": {
+      "sensor": {
+        "door_security_state": {
+          "name": "Tür-Sicherheitsstatus",
+          "state": {
+            "closed_and_locked": "Geschlossen & verriegelt",
+            "closed_and_unlocked": "Geschlossen & entriegelt",
+            "open": "Offen"
+          }
+        }
+      }
     }
   }
   

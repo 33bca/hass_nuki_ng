@@ -4,6 +4,10 @@ from functools import lru_cache
 
 
 class BaseStates(Enum):
+    @property
+    def translation_key(self) -> str:
+        return self.name.lower()
+
     @lru_cache
     def __str__(self):
         return self.name.lower().replace("_", " ").replace("and", "&").title()
