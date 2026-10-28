@@ -61,6 +61,20 @@
           "closed_and_unlocked": "Closed & Unlocked",
           "open": "Open"
         }
+      },
+      "door_state": {
+        "name": "Door State",
+        "state": {
+          "unavailable": "Unavailable",
+          "deactivated": "Deactivated",
+          "door_closed": "Door closed",
+          "door_opened": "Door open",
+          "door_unknown": "Door state unknown",
+          "calibrating": "Calibrating",
+          "uncalibrated": "Uncalibrated",
+          "removed": "Removed",
+          "unknown": "Unknown"
+        }
       }
     }
   }

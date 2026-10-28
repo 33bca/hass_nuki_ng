@@ -47,6 +47,20 @@
             "closed_and_unlocked": "Geschlossen & entriegelt",
             "open": "Offen"
           }
+        },
+        "door_state": {
+          "name": "Türstatus",
+          "state": {
+            "unavailable": "Nicht verfügbar",
+            "deactivated": "Deaktiviert",
+            "door_closed": "Tür geschlossen",
+            "door_opened": "Tür geöffnet",
+            "door_unknown": "Türzustand unbekannt",
+            "calibrating": "Wird kalibriert",
+            "uncalibrated": "Nicht kalibriert",
+            "removed": "Entfernt",
+            "unknown": "Unbekannt"
+          }
         }
       }
     }
